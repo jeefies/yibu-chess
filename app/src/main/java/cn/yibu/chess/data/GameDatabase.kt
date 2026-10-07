@@ -1,17 +1,10 @@
 package cn.yibu.chess.data
 
 import android.content.Context
-import androidx.room.Dao
-import androidx.room.Database
-import androidx.room.Entity
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.PrimaryKey
-import androidx.room.Query
-import androidx.room.Room
-import androidx.room.RoomDatabase
-import cn.yibu.chess.core.GameRecord
-import kotlinx.coroutines.flow.Flow
+import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import cn.yibu.chess.core.*
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -19,30 +12,93 @@ import kotlinx.serialization.json.Json
 @Entity(tableName = "games")
 data class StoredGame(@PrimaryKey val id: Long, val startedAt: Long, val payload: String)
 
+@Entity(tableName = "player_profile")
+data class StoredProfile(@PrimaryKey val id: Int = 1, val rating: Int = 500, val ratedGames: Int = 0) {
+    fun value() = PlayerProfile(rating, ratedGames)
+}
+
+@Entity(tableName = "rating_history")
+data class StoredRating(@PrimaryKey val gameId: Long, val before: Int, val after: Int, val opponent: Int,
+    val score: Double, val expected: Double, val k: Int) {
+    fun value() = RatingChange(before, after, opponent, score, expected, k)
+}
+
+@Entity(tableName = "deleted_games")
+data class DeletedGame(@PrimaryKey val id: Long)
+
 @Dao
 interface GameDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun save(game: StoredGame)
-    @Query("SELECT * FROM games ORDER BY startedAt DESC") fun observe(): Flow<List<StoredGame>>
-    @Query("SELECT * FROM games ORDER BY startedAt DESC LIMIT 1") suspend fun latest(): StoredGame?
+    @Query("SELECT * FROM games ORDER BY startedAt DESC, id DESC") fun observe(): kotlinx.coroutines.flow.Flow<List<StoredGame>>
+    @Query("SELECT * FROM games ORDER BY startedAt DESC, id DESC LIMIT 1") suspend fun latest(): StoredGame?
+    @Query("SELECT * FROM games WHERE id = :id") suspend fun find(id: Long): StoredGame?
+    @Query("DELETE FROM games WHERE id = :id") suspend fun delete(id: Long)
 }
 
-@Database(entities = [StoredGame::class], version = 1, exportSchema = false)
+@Dao
+interface RatingDao {
+    @Query("SELECT * FROM player_profile WHERE id = 1") fun observeProfile(): kotlinx.coroutines.flow.Flow<StoredProfile?>
+    @Query("SELECT * FROM player_profile WHERE id = 1") suspend fun profile(): StoredProfile?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun save(profile: StoredProfile)
+    @Query("SELECT * FROM rating_history WHERE gameId = :id") suspend fun rating(id: Long): StoredRating?
+    @Insert suspend fun record(rating: StoredRating)
+    @Query("SELECT * FROM deleted_games WHERE id = :id") suspend fun deleted(id: Long): DeletedGame?
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun markDeleted(game: DeletedGame)
+}
+
+@Database(entities = [StoredGame::class, StoredProfile::class, StoredRating::class, DeletedGame::class], version = 2, exportSchema = false)
 abstract class GameDatabase : RoomDatabase() {
     abstract fun games(): GameDao
+    abstract fun ratings(): RatingDao
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS player_profile (id INTEGER NOT NULL, rating INTEGER NOT NULL, ratedGames INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS rating_history (gameId INTEGER NOT NULL, `before` INTEGER NOT NULL, `after` INTEGER NOT NULL, opponent INTEGER NOT NULL, score REAL NOT NULL, expected REAL NOT NULL, k INTEGER NOT NULL, PRIMARY KEY(gameId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS deleted_games (id INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("INSERT OR IGNORE INTO player_profile (id, rating, ratedGames) VALUES (1, 500, 0)")
+            }
+        }
         @Volatile private var instance: GameDatabase? = null
         fun get(context: Context): GameDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, GameDatabase::class.java, "yibu-chess.db")
-                .build().also { instance = it }
+                .addMigrations(MIGRATION_1_2).build().also { instance = it }
         }
     }
 }
 
-class GameRepository(context: Context) {
-    private val dao = GameDatabase.get(context).games()
+data class SaveResult(val game: GameRecord?, val profile: PlayerProfile)
+
+class GameRepository(context: Context, private val database: GameDatabase = GameDatabase.get(context)) {
+    private val dao = database.games()
+    private val ratings = database.ratings()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     val games = dao.observe().map { rows -> rows.mapNotNull { runCatching { json.decodeFromString<GameRecord>(it.payload) }.getOrNull() } }
+    val profiles = ratings.observeProfile().map { it?.value() ?: PlayerProfile() }
+    suspend fun profile(): PlayerProfile = ratings.profile()?.value() ?: PlayerProfile()
     suspend fun latest(): GameRecord? = dao.latest()?.let { runCatching { json.decodeFromString<GameRecord>(it.payload) }.getOrNull() }
-    suspend fun save(game: GameRecord) { dao.save(StoredGame(game.id, game.startedAt, json.encodeToString(game))) }
+    suspend fun save(game: GameRecord): SaveResult = database.withTransaction {
+        var profile = profile()
+        // Cancelled analysis may finish after a deletion; it must never restore the record.
+        if (ratings.deleted(game.id) != null) return@withTransaction SaveResult(null, profile)
+        val previous = dao.find(game.id)?.let { runCatching { json.decodeFromString<GameRecord>(it.payload) }.getOrNull() }
+        // A navigation save queued before the last move must not undo a finished game.
+        val snapshot = if (previous != null && ((previous.finished && !game.finished) || previous.moves.size > game.moves.size)) previous else game
+        var change = ratings.rating(game.id)?.value()
+        if (change == null && EloRules.eligible(snapshot)) {
+            change = EloRules.calculate(profile, requireNotNull(snapshot.opponentElo), requireNotNull(EloRules.score(snapshot)))
+            ratings.record(StoredRating(game.id, change.before, change.after, change.opponent, change.score, change.expected, change.k))
+            profile = PlayerProfile(change.after, profile.ratedGames + 1)
+            ratings.save(StoredProfile(rating = profile.rating, ratedGames = profile.ratedGames))
+        }
+        val saved = snapshot.copy(ratingChange = change)
+        dao.save(StoredGame(saved.id, saved.startedAt, json.encodeToString(saved)))
+        SaveResult(saved, profile)
+    }
+    suspend fun delete(id: Long) = database.withTransaction {
+        ratings.markDeleted(DeletedGame(id))
+        dao.delete(id)
+        // Rating history remains authoritative, even when its chess score is removed.
+    }
     fun diagnostics(game: GameRecord): String = json.encodeToString(game)
 }

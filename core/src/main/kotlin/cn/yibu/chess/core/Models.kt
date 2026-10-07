@@ -48,32 +48,50 @@ data class MoveReview(
     val provisional: Boolean = true,
     val engineVersion: String = "Stockfish 17.1",
     val algorithmVersion: Int = 1,
+    val scoringElo: Int = 500,
+    val bestExpectedPoints: Double? = null,
+    val playedExpectedPoints: Double? = null,
 ) {
-    val pointsLost: Double get() = (best.expected - played.expected).coerceAtLeast(0.0)
+    val pointsLost: Double get() = ((bestExpectedPoints ?: best.expected) - (playedExpectedPoints ?: played.expected)).coerceAtLeast(0.0)
     val bestMove: String get() = best.pv.firstOrNull() ?: uci
     val moverWhite: Boolean get() = ply % 2 == 1
 }
 
 @Serializable
 enum class Difficulty(val chinese: String, val description: String, val skill: Int) {
+    MATCHED("匹配我的 Elo", "随个人分数调整强度；胜负与和棋结算个人 Elo", 0),
     RELAXED("轻松练习", "会出现可利用的失误，适合基础训练", 0),
     LIGHT("接近挑战", "减少失误，练习发现对手的威胁", 2),
     CHALLENGE("进阶挑战", "Stockfish 技能等级 5", 5),
-    STRONG("最强", "全强度，限制每步思考时间", 20)
+    STRONG("最强", "Stockfish 全棋力，1.5 秒／步；不改变个人 Elo", 20);
+    companion object { val choices = listOf(MATCHED, STRONG) }
 }
 
 @Serializable
 data class GameRecord(
-    val id: Long = System.currentTimeMillis(),
+    val id: Long = GameIds.next(),
     val startedAt: Long = System.currentTimeMillis(),
     val humanWhite: Boolean = true,
-    val difficulty: Difficulty = Difficulty.RELAXED,
+    val difficulty: Difficulty = Difficulty.MATCHED,
     val moves: List<String> = emptyList(),
     val reviews: List<MoveReview> = emptyList(),
     val result: String = "*",
     val ending: String = "",
     val finished: Boolean = false,
-)
+    val rated: Boolean = false,
+    val playerEloAtStart: Int? = null,
+    val opponentElo: Int? = null,
+    val ratingChange: RatingChange? = null,
+) {
+    val mode: Difficulty get() = if (difficulty == Difficulty.STRONG) Difficulty.STRONG else Difficulty.MATCHED
+    val opponentLabel: String get() = if (mode == Difficulty.STRONG) "最强 · 不计 Elo"
+        else "匹配对手 · Elo ${opponentElo ?: 500}${if (rated) "" else " · 不计分"}"
+}
+
+private object GameIds {
+    private val last = java.util.concurrent.atomic.AtomicLong()
+    fun next(): Long = last.updateAndGet { maxOf(System.currentTimeMillis(), it + 1) }
+}
 
 data class SearchRequest(
     val timeMs: Int = 500,

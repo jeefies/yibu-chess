@@ -40,6 +40,8 @@ metadata = {
     "files": {p.name: {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files},
     "validation": {
         "core_jvm_tests": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.CoreTest.xml"),
+        "rating_and_elo_jvm_tests": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.RatingAndEloTest.xml"),
+        "rating_storage_and_migration_robolectric": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.data.GameRepositoryTest.xml"),
         "android_startup_robolectric": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.StartupTest.xml"),
         "native_host_jni_probe": "passed",
         "apk_signature": "v2 verified", "apk_zip_16kb_alignment": "passed",

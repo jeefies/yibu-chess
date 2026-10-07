@@ -91,7 +91,7 @@ class CoreTest {
             override suspend fun search(history: List<String>, request: SearchRequest): SearchResult {
                 calls += history to request
                 val lines = if (request.restricted.isNotEmpty()) listOf(Evaluation(12, cp = -80, win = 100, draw = 650, loss = 250, pv = listOf("a7a6", "d2d4")))
-                    else listOf(Evaluation(12, cp = 40, win = 250, draw = 650, loss = 100, pv = listOf("e7e5", "g1f3")),
+                    else listOf(Evaluation(12, cp = 80, win = 250, draw = 650, loss = 100, pv = listOf("e7e5", "g1f3")),
                         Evaluation(12, 2, cp = 30, win = 200, draw = 700, loss = 100, pv = listOf("c7c5", "g1f3")),
                         Evaluation(12, 3, cp = 20, win = 170, draw = 730, loss = 100, pv = listOf("e7e6", "d2d4")))
                 return SearchResult(lines.first().pv.first(), mapOf(12 to lines))
@@ -99,7 +99,7 @@ class CoreTest {
         }
         val review = MoveAnalyzer(engine).analyze(history, "a7a6", false)
         assertEquals(Grade.MISTAKE, review.grade)
-        assertEquals(0.15, review.pointsLost, 0.0001)
+        assertEquals(0.1206, review.pointsLost, 0.0001)
         assertTrue(calls.all { it.first == history && it.second.skill == 20 })
         assertEquals(listOf("a7a6"), calls.last().second.restricted)
         assertFalse(review.moverWhite)
@@ -110,7 +110,7 @@ class CoreTest {
             override suspend fun search(history: List<String>, request: SearchRequest): SearchResult {
                 val pv = request.restricted.firstOrNull() ?: "e2e4"
                 val expectedWin = if (request.restricted.isEmpty()) 100 else 500
-                val lines = List(if (request.restricted.isEmpty()) 3 else 1) { i -> Evaluation(12, i + 1, cp = 20, win = expectedWin, draw = 1000 - expectedWin, pv = listOf(if (i == 0) pv else if (i == 1) "d2d4" else "g1f3")) }
+                val lines = List(if (request.restricted.isEmpty()) 3 else 1) { i -> Evaluation(12, i + 1, cp = if (request.restricted.isEmpty()) 20 else 200, win = expectedWin, draw = 1000 - expectedWin, pv = listOf(if (i == 0) pv else if (i == 1) "d2d4" else "g1f3")) }
                 return SearchResult(pv, mapOf(12 to lines))
             }
         }

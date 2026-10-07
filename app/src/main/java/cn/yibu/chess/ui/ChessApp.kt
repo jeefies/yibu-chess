@@ -80,10 +80,10 @@ fun ChessApp(model: GameViewModel) {
                     Spacer(Modifier.width(9.dp))
                     Column(Modifier.weight(1f)) {
                         Text("弈步", fontWeight = FontWeight.Bold, fontSize = 23.sp)
-                        Text("每一步，都看得更清楚", color = Muted, fontSize = 11.sp)
+                        Text("个人 Elo ${state.profile.rating} · 已结算 ${state.profile.ratedGames} 盘", color = Accent, fontSize = 11.sp)
                     }
                     TextButton(onClick = { aboutDialog = true }) { Text("说明") }
-                    FilledTonalButton(onClick = { newDialog = true }, enabled = state.ready) { Text("新局") }
+                    FilledTonalButton(onClick = { newDialog = true }, enabled = state.ready && !state.transitioning) { Text("新局") }
                 }
                 if (state.page == 2) {
                     Library(state, model)
@@ -91,10 +91,14 @@ fun ChessApp(model: GameViewModel) {
                     Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(if (state.page == 1) "逐步复盘" else state.game.difficulty.chinese, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                                Text(if (state.page == 1) "逐步复盘" else state.game.mode.chinese, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                                 Text(if (state.page == 1) "${state.game.moves.size} 步 · ${model.resultChinese(state.game)}" else "你执${if (state.game.humanWhite) "白" else "黑"} · 手机本地 Stockfish", color = Muted, fontSize = 12.sp)
                             }
                             Text("● ${if (state.ready) "离线就绪" else "准备中"}", color = if (state.ready) Accent else Muted, fontSize = 12.sp)
+                        }
+                        Text(state.game.opponentLabel, color = Accent, fontSize = 12.sp)
+                        state.game.ratingChange?.let { change ->
+                            Text("本局 Elo ${change.before} → ${change.after}（${if (change.delta > 0) "+" else ""}${change.delta}）", color = Accent, fontSize = 14.sp)
                         }
                         if (state.page == 1) EvaluationChart(state.game, state.cursor, model::cursor)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -161,7 +165,7 @@ fun ChessApp(model: GameViewModel) {
                 }
             }
         }
-        if (newDialog) NewGameDialog(state.game.difficulty, onDismiss = { newDialog = false }) { difficulty, white ->
+        if (newDialog) NewGameDialog(state.game.mode, state.profile.rating, onDismiss = { newDialog = false }) { difficulty, white ->
             model.newGame(difficulty, white); newDialog = false
         }
         if (promotion.isNotEmpty()) AlertDialog(onDismissRequest = { promotion = emptyList() }, title = { Text("选择升变棋子") }, text = {
@@ -171,13 +175,14 @@ fun ChessApp(model: GameViewModel) {
                 }
             }
         }, confirmButton = {})
-        if (resignDialog) AlertDialog(onDismissRequest = { resignDialog = false }, title = { Text("结束这盘对局？") }, text = { Text("棋谱和分析会保留，可以继续复盘。") },
+        if (resignDialog) AlertDialog(onDismissRequest = { resignDialog = false }, title = { Text("结束这盘对局？") }, text = { Text("棋谱和分析会保留。${if (state.game.rated) "本局按负局结算个人 Elo。" else "本局不改变个人 Elo。"}") },
             confirmButton = { TextButton(onClick = { model.resign(); resignDialog = false }) { Text("认输") } }, dismissButton = { TextButton(onClick = { resignDialog = false }) { Text("继续对弈") } })
         if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("关于弈步 · ${BuildConfig.VERSION_NAME}") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("离线引擎：Stockfish 17.1\n权重随安装包提供，无需网络权限。\n轻松／接近档是练习难度，不代表真实等级分。", fontSize = 13.sp)
-                Text("评级根据最佳着与实际着的预期得分差：\n5–10 个百分点：?!\n10–20 个百分点：?\n20 个百分点以上：??\n! 表示关键好棋，!! 表示经深入验证的弃子。", fontSize = 13.sp)
-                Text("WDL 是引擎自我对弈的局面质量模型，不是你的真实胜率。实时结果为初评，复盘可深入计算。", color = Muted, fontSize = 12.sp)
+                Text("离线引擎：Stockfish 17.1\n权重随安装包提供，无需网络权限。\n匹配对手随个人 Elo 调整；最强使用全棋力，每步最多思考约1.5秒。", fontSize = 13.sp)
+                Text("个人 Elo 从500开始，与 Chess.com 分数独立。匹配局的胜负与和棋按 Elo 公式结算；最强局不计分。前10盘调整较快。删除棋谱不会撤销分数；旧版对局不补计分。", fontSize = 13.sp)
+                Text("采用 Chess.com 公开的预期得分损失阈值：\n最佳：引擎最佳或等值走法\n小于2个百分点：优秀\n2–5：不错 · 5–10：?!\n10–20：? · 20以上：??\n! 是关键好棋，!! 是深入验证的合理弃子。", fontSize = 13.sp)
+                Text("Chess.com 完整算法未公开。这里用引擎分值和棋力估算预期得分，不能与官网一比一对应。实时为初评，复盘可深入计算。", color = Muted, fontSize = 12.sp)
                 Text("Stockfish：GPLv3-or-later\nchesslib：Apache-2.0\n完整许可和引擎版本记录包含在源码及 APK 内。", fontSize = 12.sp)
                 TextButton(onClick = { context.startActivity(model.share(true)) }) { Text("导出对局诊断 JSON") }
                 TextButton(onClick = { context.startActivity(model.shareLicenses()) }) { Text("查看／导出开源许可证") }
@@ -201,7 +206,7 @@ private fun RatingCard(state: AppState, model: GameViewModel) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("${review.san} · ${review.grade.chinese}", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                        Text("${if (review.provisional) "初评" else "深度复评"} · 深度 ${minOf(review.best.depth, review.played.depth)}", color = Muted, fontSize = 11.sp)
+                        Text("${if (review.algorithmVersion < 2) "旧版评级 · 建议复评" else if (review.provisional) "初评" else "深度复评"} · 深度 ${minOf(review.best.depth, review.played.depth)}", color = Muted, fontSize = 11.sp)
                     }
                     Text(review.played.display(whitePerspective = true, moverWhite = review.moverWhite), fontSize = 17.sp, color = Accent)
                 }
@@ -278,38 +283,54 @@ private fun EvaluationChart(game: GameRecord, cursor: Int, onSelect: (Int) -> Un
 @Composable
 private fun Library(state: AppState, model: GameViewModel) {
     val formatter = remember { SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA) }
+    var pendingDelete by remember { mutableStateOf<GameRecord?>(null) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("我的棋谱", fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
         Text("保存在这台手机 · ${state.games.size} 盘", color = Muted, fontSize = 12.sp)
+        if (state.error != null) Text(state.error, color = Color(0xFFEE8F85), fontSize = 13.sp)
         if (state.games.isEmpty()) Text("开始一盘对弈，棋谱会自动保存。", color = Muted, modifier = Modifier.padding(vertical = 40.dp))
         state.games.forEach { game ->
             Card(Modifier.fillMaxWidth().clickable { model.load(game) }, colors = CardDefaults.cardColors(containerColor = Panel)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Row {
-                        Text(game.difficulty.chinese, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text(game.opponentLabel, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), fontSize = 14.sp)
                         Text(model.resultChinese(game), color = Accent, fontSize = 12.sp)
                     }
                     Text("${formatter.format(Date(game.startedAt))} · 你执${if (game.humanWhite) "白" else "黑"} · ${game.moves.size} 步", color = Muted, fontSize = 12.sp)
                     val mistakes = game.reviews.count { it.moverWhite == game.humanWhite && it.grade in listOf(Grade.MISTAKE, Grade.BLUNDER) }
                     Text("已分析 ${game.reviews.size} 步 · 你的失误 $mistakes 次", color = Muted, fontSize = 12.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val change = game.ratingChange
+                        Text(if (change != null) "Elo ${change.before} → ${change.after}（${if (change.delta > 0) "+" else ""}${change.delta}）"
+                            else if (game.rated) "${if (game.finished) "正在结算" else "结束后结算"} Elo" else "本局不计分",
+                            color = Accent, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { pendingDelete = game }, enabled = !state.transitioning) { Text("删除", color = Color(0xFFEE8F85)) }
+                    }
                 }
             }
         }
         Spacer(Modifier.height(20.dp))
     }
+    pendingDelete?.let { game ->
+        AlertDialog(onDismissRequest = { pendingDelete = null }, title = { Text("删除这盘棋谱？") },
+            text = { Text("棋谱和复盘分析将从手机中删除，无法恢复。已经结算的个人 Elo 会保留。") },
+            confirmButton = { TextButton(onClick = { model.delete(game); pendingDelete = null }) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } })
+    }
 }
 
 @Composable
-private fun NewGameDialog(initial: Difficulty, onDismiss: () -> Unit, onStart: (Difficulty, Boolean) -> Unit) {
+private fun NewGameDialog(initial: Difficulty, rating: Int, onDismiss: () -> Unit, onStart: (Difficulty, Boolean) -> Unit) {
     var difficulty by remember { mutableStateOf(initial) }
     var white by remember { mutableStateOf(true) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("开始一盘练习") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Difficulty.entries.forEach { option ->
+            Text("你的个人 Elo：$rating", color = Accent, modifier = Modifier.padding(bottom = 8.dp))
+            Difficulty.choices.forEach { option ->
                 Row(Modifier.fillMaxWidth().clickable { difficulty = option }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = difficulty == option, onClick = { difficulty = option })
                     Column {
-                        Text(option.chinese, fontSize = 15.sp)
+                        Text(if (option == Difficulty.MATCHED) "${option.chinese} · $rating" else option.chinese, fontSize = 15.sp)
                         Text(option.description, fontSize = 11.sp, color = Muted)
                     }
                 }

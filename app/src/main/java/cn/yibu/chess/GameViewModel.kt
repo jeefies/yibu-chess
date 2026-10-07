@@ -24,10 +24,12 @@ import java.io.File
 
 data class AppState(
     val game: GameRecord = GameRecord(),
+    val profile: PlayerProfile = PlayerProfile(),
     val games: List<GameRecord> = emptyList(),
     val page: Int = 0,
     val ready: Boolean = false,
     val busy: Boolean = false,
+    val transitioning: Boolean = false,
     val status: String = "正在校验离线引擎…",
     val error: String? = null,
     val cursor: Int = 0,
@@ -58,31 +60,48 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch { repository.games.collect { games -> mutable.update { it.copy(games = games) } } }
+        viewModelScope.launch { repository.profiles.collect { profile ->
+            mutable.update { if (profile.ratedGames >= it.profile.ratedGames) it.copy(profile = profile) else it }
+        } }
         viewModelScope.launch {
             try {
+                val profile = repository.profile()
                 val restored = repository.latest()
-                if (restored != null && !restored.finished) mutable.update { it.copy(game = restored, cursor = restored.moves.size) }
+                val game = restored?.takeUnless { it.finished } ?: EloRules.newGame(profile, Difficulty.MATCHED, true)
+                mutable.update { it.copy(profile = profile, game = game, cursor = game.moves.size) }
                 engine.initialize()
                 mutable.update { it.copy(ready = true, status = "离线引擎已就绪") }
                 if (!mutable.value.humanTurn) advance()
             } catch (e: Exception) { mutable.update { it.copy(error = "引擎启动失败：${e.message}", status = "启动失败") } }
         }
     }
-    private fun cancelWork() {
+    private fun cancelWork(saveSnapshot: Boolean = true) {
         val snapshot = mutable.value.game
         generation++
         work?.cancel()
         engine.stop()
         mutable.update { it.copy(busy = false) }
-        if (snapshot.moves.isNotEmpty()) viewModelScope.launch { persist(snapshot) }
+        if (saveSnapshot && snapshot.moves.isNotEmpty()) viewModelScope.launch { persist(snapshot) }
     }
     fun clearError() { mutable.update { it.copy(error = null) } }
     fun newGame(difficulty: Difficulty, humanWhite: Boolean) {
-        if (!mutable.value.ready) return
-        cancelWork()
-        val game = GameRecord(difficulty = difficulty, humanWhite = humanWhite)
-        mutable.update { it.copy(game = game, page = 0, cursor = 0, variation = emptyList(), status = "新对局已开始", error = null) }
-        viewModelScope.launch { persist(game); if (!humanWhite) advance() }
+        if (!mutable.value.ready || mutable.value.transitioning || difficulty !in Difficulty.choices) return
+        val previous = mutable.value.game
+        cancelWork(false)
+        mutable.update { it.copy(busy = true, transitioning = true, error = null) }
+        viewModelScope.launch {
+            try {
+                if (previous.moves.isNotEmpty() || previous.finished) persist(previous)
+                val profile = repository.profile()
+                val game = EloRules.newGame(profile, difficulty, humanWhite)
+                mutable.update { it.copy(profile = profile, game = game, page = 0, cursor = 0, variation = emptyList(),
+                    reviewDone = 0, status = "新对局已开始") }
+                persist(game)
+                mutable.update { it.copy(busy = false, transitioning = false) }
+                if (!humanWhite) advance()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(busy = false, transitioning = false, error = "新局保存失败：${e.message}") } }
+        }
     }
     fun play(uci: String) {
         val state = mutable.value
@@ -101,10 +120,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // Concurrent cancellation/navigation must not overwrite a newer snapshot.
         val current = mutable.value.game
         val latest = if (current.id == game.id) current else game
-        withContext(Dispatchers.IO) { repository.save(latest) }
+        val saved = withContext(Dispatchers.IO) { repository.save(latest) }
+        mutable.update { state ->
+            val profile = if (saved.profile.ratedGames >= state.profile.ratedGames) saved.profile else state.profile
+            state.copy(profile = profile, game = if (state.game.id == saved.game?.id) state.game.copy(ratingChange = saved.game?.ratingChange) else state.game)
+        }
     }
     private fun advance() {
-        if (!mutable.value.ready || mutable.value.busy) return
+        if (!mutable.value.ready || mutable.value.busy || mutable.value.transitioning) return
         val token = generation
         mutable.update { it.copy(busy = true, error = null) }
         work = viewModelScope.launch {
@@ -116,7 +139,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (token == generation && !mutable.value.game.finished && !mutable.value.humanTurn && mutable.value.page == 0) {
                     mutable.update { it.copy(status = "Stockfish 正在思考…") }
                     val before = mutable.value.game
-                    val move = opponent.move(before.moves, before.difficulty)
+                    val move = opponent.move(before.moves, before.mode, before.opponentElo ?: 500)
                     currentCoroutineContext().ensureActive()
                     if (token != generation) return@launch
                     val game = withContext(Dispatchers.Default) { finishIfNecessary(before.copy(moves = before.moves + move)) }
@@ -134,7 +157,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun analyzePly(ply: Int, deep: Boolean, token: Int) {
         val game = mutable.value.game
         mutable.update { it.copy(status = if (deep) "深度复评 $ply / ${game.moves.size}" else "正在分析第 ${(ply + 1) / 2} 回合…") }
-        val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep) }
+        val humanMove = (ply % 2 == 1) == game.humanWhite
+        val scoringElo = if (humanMove) game.playerEloAtStart ?: mutable.value.profile.rating
+            else game.opponentElo ?: if (game.mode == Difficulty.STRONG) 2800 else 500
+        val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
         currentCoroutineContext().ensureActive()
         if (token != generation || game.id != mutable.value.game.id) return
         val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + review).sortedBy { it.ply })
@@ -143,18 +169,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // A promising tactical move gets an extra verification pass immediately,
         // so !/!! can appear during play while remaining conservative.
         if (!deep && review.pointsLost < 0.02 && ChessRules.legal(game.moves.take(ply - 1)).size > 1) {
-            val unique = review.bestMove == review.uci && review.second?.let { review.best.expected - it.expected >= 0.10 } == true && review.best.mate != 1
-            val sacrifice = review.played.expected >= 0.5 && ChessRules.substantialSacrifice(game.moves.take(ply - 1), review.played.pv)
+            val unique = review.bestMove == review.uci && review.second?.let { (review.bestExpectedPoints ?: 0.5) - RatingRules.expectedPoints(it, scoringElo) >= 0.10 } == true && review.best.mate != 1
+            val sacrifice = (review.playedExpectedPoints ?: 0.5) >= 0.5 && ChessRules.substantialSacrifice(game.moves.take(ply - 1), review.played.pv)
             if (unique || sacrifice) analyzePly(ply, true, token)
         }
     }
     fun page(page: Int) {
+        if (mutable.value.transitioning) return
         if (page == mutable.value.page) return
         cancelWork()
         mutable.update { it.copy(page = page, cursor = it.game.moves.size, variation = emptyList(), status = "离线引擎已就绪") }
         if (page == 0 && !mutable.value.game.finished && !mutable.value.humanTurn) advance()
     }
     fun load(game: GameRecord) {
+        if (mutable.value.transitioning) return
         cancelWork()
         mutable.update { it.copy(game = game, page = 1, cursor = game.moves.size, variation = emptyList(), error = null) }
     }
@@ -194,7 +222,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val game = mutable.value.game
                 for (ply in 1..game.moves.size) {
                     currentCoroutineContext().ensureActive()
-                    if (game.reviews.find { it.ply == ply }?.provisional != false) analyzePly(ply, true, token)
+                    val review = game.reviews.find { it.ply == ply }
+                    if (review == null || review.provisional || review.algorithmVersion < 2) analyzePly(ply, true, token)
                     mutable.update { it.copy(reviewDone = ply) }
                 }
             } catch (e: CancellationException) { throw e }
@@ -204,7 +233,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun pauseReview() { cancelWork(); mutable.update { it.copy(status = "复评已暂停，已完成的结果已保存") } }
     fun resign() {
-        if (mutable.value.game.finished) return
+        if (!mutable.value.ready || mutable.value.transitioning || mutable.value.game.finished) return
         cancelWork()
         val game = mutable.value.game.copy(finished = true, result = if (mutable.value.game.humanWhite) "0-1" else "1-0", ending = "认输")
         mutable.update { it.copy(game = game, status = "对局已结束") }
@@ -218,6 +247,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val game = state.game.copy(finished = true, result = "1/2-1/2", ending = reason)
         mutable.update { it.copy(game = game, status = "和棋 · $reason") }
         viewModelScope.launch { persist(game) }
+    }
+    fun delete(game: GameRecord) {
+        if (mutable.value.transitioning) return
+        val active = mutable.value.game.id == game.id
+        val snapshot = mutable.value.game
+        if (active) cancelWork(false)
+        mutable.update { it.copy(transitioning = true) }
+        viewModelScope.launch {
+            try {
+                if (active && snapshot.finished) persist(snapshot)
+                persistence.withLock { repository.delete(game.id) }
+                mutable.update { state ->
+                    if (state.game.id == game.id) state.copy(game = EloRules.newGame(state.profile, Difficulty.MATCHED, true),
+                        page = 2, cursor = 0, variation = emptyList(), busy = false, reviewDone = 0,
+                        transitioning = false, status = "棋谱已删除")
+                    else state.copy(transitioning = false)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(transitioning = false, error = "删除失败：${e.message}") } }
+        }
     }
     fun share(diagnostics: Boolean): Intent {
         val game = mutable.value.game
@@ -241,7 +290,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }, "开源许可证")
     }
     fun pauseForBackground() {
-        if (mutable.value.busy) { cancelWork(); mutable.update { it.copy(status = "已暂停计算，棋谱已保存") } }
+        if (mutable.value.busy && !mutable.value.transitioning) { cancelWork(); mutable.update { it.copy(status = "已暂停计算，棋谱已保存") } }
     }
     fun resumeForeground() {
         if (mutable.value.ready && mutable.value.page == 0 && !mutable.value.game.finished && !mutable.value.humanTurn && !mutable.value.busy) advance()
