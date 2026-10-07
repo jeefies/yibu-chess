@@ -23,7 +23,7 @@ jobs:
           fi
           printf '%s' "$YIBU_KEYSTORE_BASE64" | base64 --decode > signing/personal.jks
       - name: Test and assemble
-        run: ./gradlew :core:test :app:assembleRelease
+        run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: yibu-arm64-apk

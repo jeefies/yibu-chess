@@ -9,6 +9,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoreTest {
+    @Test fun freshGameHasAnEmptyMoveStripAndExportablePgn() {
+        assertEquals(emptyList<String>(), ChessRules.sanMoves(emptyList()))
+        assertTrue(ChessRules.pgn(GameRecord()).endsWith("*"))
+    }
+    @Test fun emptyAndInvalidReviewVariationsHaveNoDisplayMoves() {
+        assertEquals(emptyList<String>(), ChessRules.variationSan(emptyList(), emptyList()))
+        assertEquals(emptyList<String>(), ChessRules.variationSan(listOf("e2e4"), emptyList()))
+        assertEquals(emptyList<String>(), ChessRules.variationSan(emptyList(), listOf("e2e5")))
+        assertEquals(listOf("e4"), ChessRules.variationSan(emptyList(), listOf("e2e4", "e7e4")))
+    }
     private fun perft(board: Board, depth: Int): Long {
         if (depth == 0) return 1
         var nodes = 0L

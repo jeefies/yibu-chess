@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.yibu.chess.AppState
+import cn.yibu.chess.BuildConfig
 import cn.yibu.chess.GameViewModel
 import cn.yibu.chess.core.*
 import java.text.SimpleDateFormat
@@ -123,7 +124,7 @@ fun ChessApp(model: GameViewModel) {
                             }
                         }
                         MoveStrip(state, model)
-                        if (state.busy || !state.ready) {
+                        if (state.busy || (!state.ready && state.error == null)) {
                             Row(Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(10.dp))
@@ -172,7 +173,7 @@ fun ChessApp(model: GameViewModel) {
         }, confirmButton = {})
         if (resignDialog) AlertDialog(onDismissRequest = { resignDialog = false }, title = { Text("结束这盘对局？") }, text = { Text("棋谱和分析会保留，可以继续复盘。") },
             confirmButton = { TextButton(onClick = { model.resign(); resignDialog = false }) { Text("认输") } }, dismissButton = { TextButton(onClick = { resignDialog = false }) { Text("继续对弈") } })
-        if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("关于弈步 · 0.1.0") }, text = {
+        if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("关于弈步 · ${BuildConfig.VERSION_NAME}") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("离线引擎：Stockfish 17.1\n权重随安装包提供，无需网络权限。\n轻松／接近档是练习难度，不代表真实等级分。", fontSize = 13.sp)
                 Text("评级根据最佳着与实际着的预期得分差：\n5–10 个百分点：?!\n10–20 个百分点：?\n20 个百分点以上：??\n! 表示关键好棋，!! 表示经深入验证的弃子。", fontSize = 13.sp)

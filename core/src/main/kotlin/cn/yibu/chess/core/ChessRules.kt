@@ -32,9 +32,13 @@ object ChessRules {
         val b = board(history)
         return MoveList(b.fen).apply { add(Move(uci, b.sideToMove)) }.toSanArray().first()
     }
-    fun sanMoves(history: List<String>): List<String> = MoveList().apply { loadFromText(history.joinToString(" ")) }.toSanArray().toList()
+    fun sanMoves(history: List<String>): List<String> {
+        if (history.isEmpty()) return emptyList()
+        return MoveList().apply { loadFromText(history.joinToString(" ")) }.toSanArray().toList()
+    }
     fun variationSan(history: List<String>, variation: List<String>): List<String> {
         val safe = legalVariation(history, variation)
+        if (safe.isEmpty()) return emptyList()
         return MoveList(board(history).fen).apply { loadFromText(safe.joinToString(" ")) }.toSanArray().toList()
     }
     fun legalVariation(history: List<String>, variation: List<String>): List<String> {

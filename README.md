@@ -18,11 +18,11 @@
 
 ## 在手机上安装
 
-[下载 ARM64 APK（约 83 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.1.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.1.0-arm64.apk)
+[下载 ARM64 APK（约 83 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.1.1-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.1.1-arm64.apk)
 
 该仓库为私有仓库，请先在手机浏览器登录 `well49112`。安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
 
-1. 下载 `yibu-0.1.0-arm64.apk`，按系统提示允许下载来源安装。
+1. 下载 `yibu-0.1.1-arm64.apk`，按系统提示允许下载来源安装。已安装 0.1.0 时直接覆盖升级即可，签名保持一致。
 2. 首次启动会校验约 75 MiB 权重并复制到应用私有目录，稍等离线引擎就绪。
 3. 默认轻松练习、你执白；“新局”可以改难度和执棋颜色。
 4. 断网/飞行模式仍可对弈与复盘。
@@ -93,6 +93,8 @@ Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推�
 
 ```bash
 tools/with-env.sh ./gradlew :core:test
+tools/with-env.sh ./gradlew :app:testDebugUnitTest
+tools/test-startup.sh
 tools/with-env.sh python3 tools/test-native.py
 tools/with-env.sh ./gradlew :app:assembleDebugAndroidTest
 # 连接支持 arm64 的设备后：
@@ -102,6 +104,12 @@ tools/with-env.sh ./gradlew :app:connectedDebugAndroidTest
 核心测试覆盖初始局面 perft、王车易位、吃过路兵和钉住的吃过路兵、四种升变、将杀、三次申请/五次自动重复和棋、死局子力、完整 MultiPV/WDL 解析、评价视角、阈值、相同根局面比较、矛盾搜索及 SAN/PGN。
 
 宿主 JNI 探针使用与 APK 相同的 JNI 包装和 Stockfish 源码，在 Linux JVM 上验证权重、MultiPV/WDL、限定走法、历史、王车易位、吃过路兵、双线程、停止和继续。宿主验证不替代安卓设备测试。
+
+启动回归测试使用 Robolectric 模拟 Android 15，覆盖空棋谱时的界面启动。`tools/test-startup.sh` 进一步使用同源宿主 JNI 验证引擎初始化和第一回合对弈；这仍不能代替 Android ARM64 真机验证。
+
+### 0.1.1 修复
+
+0.1.0 在首次打开及新建对局时，将空棋谱传入 chesslib 的走法解析器，抛出 `MoveConversionException` 导致主界面退出。0.1.1 将空棋谱及空推荐分支直接显示为空列表，并增加启动回归测试。引擎库加载错误现在会显示可读的启动失败信息。版本号和签名支持覆盖升级。
 
 真机验收建议：飞行模式首次启动、两个颜色各下几步、切后台/重启后继续、四种升变、暂停再继续复盘、导出文件、同签名覆盖升级。Cloud 没有连接你的手机，本次不能声称已经通过 Xiaomi 17 Pro 实机验收。
 

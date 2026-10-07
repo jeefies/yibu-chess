@@ -41,7 +41,11 @@ class NativeStockfish(private val context: Context) : ChessEngine {
                     check(temp.renameTo(target)) { "无法保存引擎权重" }
                 }
             }
-            NativeBridge.initialize(dir.absolutePath)
+            try {
+                NativeBridge.initialize(dir.absolutePath)
+            } catch (e: LinkageError) {
+                throw IllegalStateException("无法加载离线引擎：${e.message}", e)
+            }
             initialized = true
         }
     }
