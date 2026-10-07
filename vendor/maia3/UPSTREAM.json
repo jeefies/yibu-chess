@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/CSSLab/maia3",
+  "commit": "1e13597c42d4858b7cfd7cfdae01e297263364b2",
+  "license": "AGPL-3.0",
+  "model": "https://huggingface.co/UofTCSSLab/Maia3-5M"
+}

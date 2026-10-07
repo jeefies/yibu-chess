@@ -51,6 +51,8 @@ data class MoveReview(
     val scoringElo: Int = 500,
     val bestExpectedPoints: Double? = null,
     val playedExpectedPoints: Double? = null,
+    val brilliantReason: String? = null,
+    val brilliantPlan: String? = null,
 ) {
     val pointsLost: Double get() = ((bestExpectedPoints ?: best.expected) - (playedExpectedPoints ?: played.expected)).coerceAtLeast(0.0)
     val bestMove: String get() = best.pv.firstOrNull() ?: uci
@@ -59,7 +61,7 @@ data class MoveReview(
 
 @Serializable
 enum class Difficulty(val chinese: String, val description: String, val skill: Int) {
-    MATCHED("匹配我的 Elo", "随个人分数调整强度；胜负与和棋结算个人 Elo", 0),
+    MATCHED("匹配我的 Elo", "Maia 拟人对手，随分数调整；本局结算个人 Elo", 0),
     RELAXED("轻松练习", "会出现可利用的失误，适合基础训练", 0),
     LIGHT("接近挑战", "减少失误，练习发现对手的威胁", 2),
     CHALLENGE("进阶挑战", "Stockfish 技能等级 5", 5),
@@ -82,6 +84,9 @@ data class GameRecord(
     val playerEloAtStart: Int? = null,
     val opponentElo: Int? = null,
     val ratingChange: RatingChange? = null,
+    val opponentEngine: String = "Stockfish 17.1",
+    val modelElo: Int? = null,
+    val policySeed: Long = 0,
 ) {
     val mode: Difficulty get() = if (difficulty == Difficulty.STRONG) Difficulty.STRONG else Difficulty.MATCHED
     val opponentLabel: String get() = if (mode == Difficulty.STRONG) "最强 · 不计 Elo"

@@ -111,6 +111,41 @@ object ChessRules {
         PieceType.PAWN -> "兵"; PieceType.KNIGHT -> "马"; PieceType.BISHOP -> "象"
         PieceType.ROOK -> "车"; PieceType.QUEEN -> "后"; PieceType.KING -> "王"; else -> "棋子"
     }
+    data class BrilliantNote(val reason: String, val plan: String)
+    fun brilliantNote(history: List<String>, played: Evaluation): BrilliantNote {
+        val safe = legalVariation(history, played.pv.take(8))
+        require(substantialSacrifice(history, safe))
+        val b = board(history)
+        val side = b.sideToMove
+        val offered = mutableListOf<Piece>()
+        safe.forEachIndexed { index, uci ->
+            val move = Move(uci, b.sideToMove)
+            val captured = b.getPiece(move.to)
+            if (index < 4 && captured != Piece.NONE && captured.pieceSide == side && b.sideToMove != side)
+                offered += captured
+            b.doMove(move, true)
+        }
+        val piece = offered.maxByOrNull(::value)?.let(::pieceChinese) ?: "子力"
+        val sans = variationSan(history, safe)
+        val laterChecks = sans.filterIndexed { i, _ -> i % 2 == 0 }.drop(1).any { it.endsWith("+") || it.endsWith("#") }
+        val reason = if (played.mate != null && played.mate > 0) "弃${piece}后，在引擎最佳应对下仍有强制将杀，因此是合理弃子。"
+            else "弃${piece}后${if (laterChecks) "可用后续将军保持进攻，" else "的具体变化提供了补偿，"}在引擎最佳应对下基本保持了局面质量。"
+        val purpose = if (played.mate != null && played.mate > 0) "，沿这条路线争取将杀" else
+            if (laterChecks) "，继续保持进攻" else "，延续这条补偿路线"
+        val reply = moveChinese(history + safe.take(1), safe[1])
+        val follow = moveChinese(history + safe.take(2), safe[2])
+        val plan = "对手 $reply 后，可${follow}$purpose。参考：${sans.joinToString("  ")}"
+        return BrilliantNote(reason, plan)
+    }
+    private fun moveChinese(history: List<String>, uci: String): String {
+        val b = board(history)
+        val move = Move(uci, b.sideToMove)
+        val notation = san(history, uci)
+        if (notation.startsWith("O-O")) return "王车易位"
+        return pieceChinese(b.getPiece(move.from)) + (if (notation.contains('x')) "吃 " else "到 ") + uci.substring(2, 4) +
+            (if (uci.length == 5) "，升变为${pieceChinese(move.promotion)}" else "") +
+            (if (notation.endsWith('#')) "并将杀" else if (notation.endsWith('+')) "并将军" else "")
+    }
     fun replyExplanation(history: List<String>, played: Evaluation): String? {
         if (played.mate != null && played.mate < 0) return "对手有强制将杀路线，点击实战变化查看。"
         if (played.pv.size < 2) return null
@@ -127,7 +162,7 @@ object ChessRules {
     fun pgn(game: GameRecord): String {
         val date = java.text.SimpleDateFormat("yyyy.MM.dd", java.util.Locale.ROOT).format(java.util.Date(game.startedAt))
         val human = "Player"
-        val engine = "Stockfish 17.1 (${game.difficulty.name})"
+        val engine = "${game.opponentEngine} (${game.difficulty.name})"
         val moves = sanMoves(game.moves)
         return buildString {
             append("[Event \"YiBu offline training\"]\n[Date \"$date\"]\n")

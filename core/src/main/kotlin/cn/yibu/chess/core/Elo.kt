@@ -3,6 +3,7 @@ package cn.yibu.chess.core
 import kotlinx.serialization.Serializable
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 @Serializable
 data class PlayerProfile(val rating: Int = 500, val ratedGames: Int = 0)
@@ -20,10 +21,14 @@ data class RatingChange(
 object EloRules {
     const val MIN_RATING = 100
     const val MAX_RATING = 2800
-    fun newGame(profile: PlayerProfile, mode: Difficulty, humanWhite: Boolean): GameRecord {
+    fun newGame(profile: PlayerProfile, mode: Difficulty = Difficulty.MATCHED, humanWhite: Boolean? = null,
+        random: Random = Random.Default): GameRecord {
         require(mode in Difficulty.choices)
-        return GameRecord(humanWhite = humanWhite, difficulty = mode, rated = mode == Difficulty.MATCHED,
-            playerEloAtStart = profile.rating, opponentElo = if (mode == Difficulty.MATCHED) profile.rating else null)
+        return GameRecord(humanWhite = humanWhite ?: random.nextBoolean(), difficulty = mode, rated = mode == Difficulty.MATCHED,
+            playerEloAtStart = profile.rating, opponentElo = if (mode == Difficulty.MATCHED) profile.rating else null,
+            opponentEngine = if (mode == Difficulty.MATCHED) "Maia-3 5M" else "Stockfish 17.1",
+            modelElo = if (mode == Difficulty.MATCHED) HumanSkill.modelElo(profile.rating) else null,
+            policySeed = random.nextLong())
     }
     fun score(game: GameRecord): Double? = when (game.result) {
         "1-0" -> if (game.humanWhite) 1.0 else 0.0

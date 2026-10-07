@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/microsoft/onnxruntime",
+  "tag": "v1.23.2",
+  "object": {
+    "sha": "a83fc4d58cb48eb68890dd689f94f28288cf2278",
+    "type": "commit",
+    "url": "https://api.github.com/repos/microsoft/onnxruntime/git/commits/a83fc4d58cb48eb68890dd689f94f28288cf2278"
+  },
+  "license": "MIT"
+}

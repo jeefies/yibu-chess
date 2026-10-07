@@ -1,6 +1,6 @@
 # 开源组件与版本
 
-应用源码使用 GPL-3.0-or-later。仅个人自用无需公开源码；分发时需要遵守相关许可证。
+弈步 0.3.0 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
 
 ## Stockfish
 
@@ -22,6 +22,24 @@
 - 提交：2e9b4e1a71a84d4fe147e762cf39c82a8cd4c251
 - 许可证：Apache-2.0，全文见 vendor/chesslib/LICENSE。
 - 上游源码未修改。应用单独实现保守的死局子力判断，避免把“不能强制将杀”误当作“不可能将杀”。
+
+## Maia-3
+
+- 上游：https://github.com/CSSLab/maia3
+- 提交：1e13597c42d4858b7cfd7cfdae01e297263364b2
+- 模型：https://huggingface.co/UofTCSSLab/Maia3-5M
+- 检查点修订：b6559de2398d7140b985f28fd2c19fb5e47ddabe
+- 原始权重 SHA-256：ba14208b2992d85502f5fb501934abf6aaaeb355e9f3fdf90e326911f562524f
+- ONNX SHA-256：40d819d93f4d59f9b3f1017e1287d8c58f8240a27fb34f41d238f1e9b12b394b
+- 许可证：AGPL-3.0，全文见 vendor/maia3/LICENSE。
+- vendor/maia3 保留上游 Python 源码和原始 5M 检查点；tools/export-maia.py 构建策略专用 ONNX 并量化。移动端编码与抽样在 core，运行在 app/engine/MaiaModel.kt。
+
+## ONNX Runtime
+
+- 上游：https://github.com/microsoft/onnxruntime
+- 版本：1.23.2，标签 v1.23.2（提交记录见 vendor/onnxruntime/UPSTREAM.json）。
+- 使用 Maven Central 官方 Android ARM64 运行时；宿主测试使用相同版本 Linux JVM 运行时。
+- 许可证：MIT；完整许可与第三方通知见 vendor/onnxruntime/LICENSE 和 ThirdPartyNotices.txt。
 
 ## 其他依赖
 

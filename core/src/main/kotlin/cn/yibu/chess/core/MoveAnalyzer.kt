@@ -71,10 +71,11 @@ class MoveAnalyzer(private val engine: ChessEngine) {
             else if (stableBest && second != null && bestPoints - RatingRules.expectedPoints(second, playerElo) >= 0.10 && best.pv.firstOrNull() == uci && (best.mate == null || best.mate > 1)) grade = Grade.GREAT
         }
         val bestSan = ChessRules.san(history, best.pv.firstOrNull() ?: uci)
+        val brilliant = if (grade == Grade.BRILLIANT) ChessRules.brilliantNote(history, played) else null
         val explanation = when (grade) {
             Grade.UNSTABLE -> "两次搜索尚未得到一致评价，建议深度复评后再判断。"
             Grade.FORCED -> "此处只有一着合法走法。"
-            Grade.BRILLIANT -> "这次弃子在最佳应对下仍有充分补偿；可跟走推荐变化验证。"
+            Grade.BRILLIANT -> requireNotNull(brilliant).reason
             Grade.GREAT -> "这是关键好棋：其他候选会明显降低局面质量。"
             Grade.BEST -> "找到了引擎当前认为的最佳走法。"
             Grade.EXCELLENT, Grade.GOOD -> "这步保持了局面质量；推荐 $bestSan，可比较两条变化。"
@@ -82,6 +83,7 @@ class MoveAnalyzer(private val engine: ChessEngine) {
         } + if (best.mate != null && best.mate > 0 && played.mate == null) " 这步错过了引擎发现的强制将杀。" else ""
         return MoveReview(history.size + 1, uci, ChessRules.san(history, uci), best, played, second,
             grade, explanation, provisional = !deep || !stable || nearThreshold || best.depth < 12,
-            algorithmVersion = 2, scoringElo = playerElo, bestExpectedPoints = bestPoints, playedExpectedPoints = playedPoints)
+            algorithmVersion = 3, scoringElo = playerElo, bestExpectedPoints = bestPoints, playedExpectedPoints = playedPoints,
+            brilliantReason = brilliant?.reason, brilliantPlan = brilliant?.plan)
     }
 }

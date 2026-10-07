@@ -23,7 +23,7 @@ class RatingAndEloTest {
         assertEquals(0.5, review.played.expected, 0.0)
         assertEquals(Grade.BLUNDER, review.grade)
         assertTrue(review.pointsLost > 0.20)
-        assertEquals(2, review.algorithmVersion)
+        assertEquals(3, review.algorithmVersion)
         assertEquals(500, review.scoringElo)
     }
     @Test fun equalCentipawnCandidatesAreBestAndSmallLossIsExcellent() = runBlocking {
@@ -104,12 +104,10 @@ class RatingAndEloTest {
         val second = GameRecord()
         assertNotEquals(first.id, second.id)
     }
-    @Test fun risingPracticeRatingReducesIntentionalErrors() {
-        val low = AdaptiveBot.tuning(300)
-        val middle = AdaptiveBot.tuning(800)
-        val high = AdaptiveBot.tuning(1500)
-        assertTrue(low.bestChance < middle.bestChance && middle.bestChance < high.bestChance)
-        assertTrue(low.blunderChance > middle.blunderChance && middle.blunderChance > high.blunderChance)
-        assertTrue(low.errorScale > high.errorScale)
+    @Test fun humanModelRatingMappingIsMonotoneAndBounded() {
+        assertEquals(600, HumanSkill.modelElo(100))
+        assertEquals(1000, HumanSkill.modelElo(500))
+        assertTrue(HumanSkill.modelElo(800) < HumanSkill.modelElo(1500))
+        assertEquals(2600, HumanSkill.modelElo(2800))
     }
 }

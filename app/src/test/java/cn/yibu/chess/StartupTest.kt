@@ -30,10 +30,12 @@ class StartupTest {
         val activity = controller.get()
         val model = ViewModelProvider(activity)[GameViewModel::class.java]
         waitFor(model) { model.state.value.ready || model.state.value.error != null }
-        assertEquals(emptyList<String>(), model.state.value.game.moves)
         assertTrue("Startup should reach engine-ready or a visible startup error", model.state.value.ready || model.state.value.error != null)
         if (System.getProperty("startup.native") == "true") {
             assertTrue("Bundled engine should initialize: ${model.state.value.error}", model.state.value.ready)
+            waitFor(model) { !model.state.value.busy && model.state.value.humanTurn }
+            assertEquals(if (model.state.value.game.humanWhite) 0 else 1, model.state.value.game.moves.size)
+            assertEquals("Maia-3 5M", model.state.value.game.opponentEngine)
             model.newGame(Difficulty.MATCHED, true)
             waitFor(model) { !model.state.value.transitioning && model.state.value.game.rated }
             model.play("e2e4")
@@ -70,6 +72,14 @@ class StartupTest {
             model.delete(model.state.value.game)
             waitFor(model) { !model.state.value.transitioning && model.state.value.profile.ratedGames == 2 }
             assertEquals(436, model.state.value.profile.rating)
+            model.configureAndStart(cn.yibu.chess.core.PlaySettings(color = cn.yibu.chess.core.ColorPreference.BLACK))
+            waitFor(model) { !model.state.value.transitioning && !model.state.value.busy && model.state.value.game.moves.size == 1 }
+            assertEquals(false, model.state.value.game.humanWhite)
+            val prior = model.state.value.game.id
+            model.newGame()
+            waitFor(model) { model.state.value.game.id != prior && !model.state.value.transitioning && !model.state.value.busy && model.state.value.game.moves.size == 1 }
+            assertEquals(false, model.state.value.game.humanWhite)
+            assertEquals(cn.yibu.chess.core.ColorPreference.BLACK, model.state.value.settings.color)
         }
         controller.pause().stop().destroy()
     }

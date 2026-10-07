@@ -1,0 +1,18 @@
+{
+  "model": "Maia-3 5M",
+  "upstream_commit": "1e13597c42d4858b7cfd7cfdae01e297263364b2",
+  "checkpoint_revision": "b6559de2398d7140b985f28fd2c19fb5e47ddabe",
+  "checkpoint_sha256": "ba14208b2992d85502f5fb501934abf6aaaeb355e9f3fdf90e326911f562524f",
+  "onnx_sha256": "40d819d93f4d59f9b3f1017e1287d8c58f8240a27fb34f41d238f1e9b12b394b",
+  "onnx_bytes": 6609175,
+  "torch_version": "2.8.0+cpu",
+  "onnxruntime_version": "1.23.2",
+  "history": 8,
+  "token_dimensions": 96,
+  "move_vocabulary": 4352,
+  "quantization": "per-channel dynamic QInt8 MatMul, full range",
+  "verification_positions": 36,
+  "max_policy_total_variation": 0.02733849361538887,
+  "top_move_agreement": 0.9722222222222222,
+  "license": "AGPL-3.0"
+}
