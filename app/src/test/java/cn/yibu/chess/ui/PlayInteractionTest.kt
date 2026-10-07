@@ -1,0 +1,104 @@
+package cn.yibu.chess.ui
+
+import android.os.Looper
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.lifecycle.ViewModelStore
+import androidx.test.core.app.ApplicationProvider
+import cn.yibu.chess.GameViewModel
+import cn.yibu.chess.core.ChessRules
+import cn.yibu.chess.core.Difficulty
+import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import java.time.Duration
+
+/** Exercises actual taps, actual Maia inference and the same Stockfish JNI source. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class PlayInteractionTest {
+    @get:Rule val compose = createComposeRule()
+
+    private fun waitFor(model: GameViewModel, condition: () -> Boolean) {
+        try {
+            compose.waitUntil(45_000) {
+                // Compose's frame clock does not drain Android Handler continuations.
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50))
+                condition()
+            }
+        } catch (e: ComposeTimeoutException) {
+            val state = model.state.value
+            throw AssertionError("Timed out: ready=${state.ready}, busy=${state.busy}, analyzing=${state.analyzing}, status=${state.status}, moves=${state.game.moves}, error=${state.error}", e)
+        }
+    }
+
+    private fun tap(square: String, humanWhite: Boolean) {
+        val index = ChessRules.squareIndex(square)
+        val col = if (humanWhite) index % 8 else 7 - index % 8
+        val row = if (humanWhite) 7 - index / 8 else index / 8
+        compose.onNodeWithContentDescription("国际象棋棋盘，${if (humanWhite) "白方" else "黑方"}视角")
+            .performScrollTo()
+            .performTouchInput { click(Offset((col + .5f) * width / 8f, (row + .5f) * height / 8f)) }
+    }
+
+    private fun play(humanWhite: Boolean, difficulty: Difficulty, turns: Int) {
+        assumeTrue("Run with -PstartupNativeDir pointing to the host JNI build", System.getProperty("startup.native") == "true")
+        val model = GameViewModel(ApplicationProvider.getApplicationContext())
+        val store = ViewModelStore().apply { put("game", model) }
+        try {
+            compose.setContent { ChessApp(model) }
+            waitFor(model) { model.state.value.ready || model.state.value.error != null }
+            assertTrue("Engine startup failed: ${model.state.value.error}", model.state.value.ready)
+            compose.runOnIdle { model.newGame(difficulty, humanWhite) }
+            waitFor(model) { !model.state.value.transitioning && !model.state.value.busy && model.state.value.humanTurn }
+            var playedDuringAnalysis = false
+            val preferred = if (humanWhite) listOf("e2e4", "g1f3", "f1c4") else listOf("e7e5", "b8c6", "f8c5")
+            repeat(turns) { turn ->
+                val before = model.state.value
+                assertEquals(humanWhite, before.game.humanWhite)
+                assertFalse(before.busy)
+                if (before.analyzing) playedDuringAnalysis = true
+                val legal = ChessRules.legal(before.game.moves)
+                val move = preferred[turn].takeIf { it in legal } ?: legal.first()
+                tap(move.take(2), humanWhite)
+                tap(move.substring(2, 4), humanWhite)
+                compose.runOnIdle {
+                    assertTrue("Turn ${turn + 1} must accept the move from the board", model.state.value.game.moves.size > before.game.moves.size)
+                    assertEquals(move, model.state.value.game.moves[before.game.moves.size])
+                }
+                waitFor(model) { model.state.value.game.moves.size == before.game.moves.size + 2 && !model.state.value.busy }
+                assertTrue(model.state.value.humanTurn)
+                assertNull(model.state.value.error)
+            }
+            assertTrue("At least one next turn should be playable while analysis is active", playedDuringAnalysis)
+
+            // Navigation stops live work, and returning resumes the missing analyses.
+            compose.runOnIdle { model.page(1) }
+            assertFalse(model.state.value.analyzing)
+            val history = model.state.value.game.moves
+            compose.runOnIdle { model.page(0); model.pauseForBackground() }
+            assertFalse(model.state.value.analyzing)
+            assertEquals(history, model.state.value.game.moves)
+            compose.runOnIdle { model.resumeForeground() }
+            waitFor(model) { !model.state.value.analyzing && model.state.value.game.reviews.size == history.size }
+            assertEquals((1..history.size).toList(), model.state.value.game.reviews.map { it.ply })
+            assertEquals(history, model.state.value.game.moves)
+            assertFalse(model.state.value.busy)
+            assertNull(model.state.value.error)
+        } finally {
+            compose.runOnIdle { store.clear() }
+        }
+    }
+
+    @Test fun whiteCanPlayThreeTurnsWhileMaiaAndStockfishRun() = play(true, Difficulty.MATCHED, 3)
+    @Test fun blackCanPlayThreeTurnsWhileMaiaAndStockfishRun() = play(false, Difficulty.MATCHED, 3)
+    @Test fun strongOpponentTakesPriorityOverBackgroundAnalysis() = play(true, Difficulty.STRONG, 2)
+}

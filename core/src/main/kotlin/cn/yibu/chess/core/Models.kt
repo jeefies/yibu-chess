@@ -65,7 +65,7 @@ enum class Difficulty(val chinese: String, val description: String, val skill: I
     RELAXED("轻松练习", "会出现可利用的失误，适合基础训练", 0),
     LIGHT("接近挑战", "减少失误，练习发现对手的威胁", 2),
     CHALLENGE("进阶挑战", "Stockfish 技能等级 5", 5),
-    STRONG("最强", "Stockfish 全棋力，1.5 秒／步；不改变个人 Elo", 20);
+    STRONG("最强", "Stockfish 全棋力，3 秒／步；不改变个人 Elo", 20);
     companion object { val choices = listOf(MATCHED, STRONG) }
 }
 

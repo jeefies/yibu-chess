@@ -136,7 +136,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                             }
                         }
                         MoveStrip(state, model)
-                        if (state.busy || (!state.ready && state.error == null)) {
+                        if (state.busy || state.analyzing || (!state.ready && state.error == null)) {
                             Row(Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(10.dp))

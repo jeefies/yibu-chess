@@ -11,14 +11,16 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.time.Duration
 import org.junit.Assert.assertEquals
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class StartupTest {
     private fun waitFor(model: GameViewModel, condition: () -> Boolean) {
-        val deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos()
+        val deadline = System.nanoTime() + Duration.ofSeconds(35).toNanos()
         while (!condition() && System.nanoTime() < deadline) {
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50))
             Thread.sleep(50)
@@ -41,7 +43,17 @@ class StartupTest {
             model.play("e2e4")
             waitFor(model) { model.state.value.game.moves.size == 2 && !model.state.value.busy }
             assertEquals(null, model.state.value.error)
+            waitFor(model) { model.state.value.game.reviews.size == 2 && !model.state.value.analyzing }
             assertEquals(2, model.state.value.game.reviews.size)
+            // The human can keep playing while deeper analysis is still running.
+            repeat(2) {
+                val prior = model.state.value.game.moves.size
+                val move = ChessRules.legal(model.state.value.game.moves).first()
+                model.play(move)
+                waitFor(model) { model.state.value.game.moves.size == prior + 2 && !model.state.value.busy }
+                assertTrue(model.state.value.humanTurn)
+                assertEquals(null, model.state.value.error)
+            }
             assertEquals(20, ChessRules.legal(emptyList()).size)
             ChessRules.board(model.state.value.game.moves)
             model.resign()

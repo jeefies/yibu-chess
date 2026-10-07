@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -36,6 +38,8 @@ fun ChessBoard(
     arrow: String? = null,
     onSquare: (Int) -> Unit,
 ) {
+    // Read the latest turn/readiness/selection callback without restarting a tap gesture.
+    val currentOnSquare by rememberUpdatedState(onSquare)
     val pieces = remember(fen) { ChessRules.fenPieces(fen) }
     val highlighted = remember(lastMove) {
         lastMove?.takeIf { it.length >= 4 }?.let { setOf(ChessRules.squareIndex(it.take(2)), ChessRules.squareIndex(it.substring(2, 4))) }.orEmpty()
@@ -48,7 +52,7 @@ fun ChessBoard(
             detectTapGestures { position ->
                 val col = (position.x / (size.width / 8f)).toInt().coerceIn(0, 7)
                 val row = (position.y / (size.height / 8f)).toInt().coerceIn(0, 7)
-                onSquare(if (flipped) row * 8 + 7 - col else (7 - row) * 8 + col)
+                currentOnSquare(if (flipped) row * 8 + 7 - col else (7 - row) * 8 + col)
             }
         }) {
         val cell = size.width / 8

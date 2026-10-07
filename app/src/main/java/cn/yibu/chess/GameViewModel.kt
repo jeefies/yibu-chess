@@ -32,6 +32,7 @@ data class AppState(
     val page: Int = 0,
     val ready: Boolean = false,
     val busy: Boolean = false,
+    val analyzing: Boolean = false,
     val transitioning: Boolean = false,
     val status: String = "正在校验离线引擎…",
     val error: String? = null,
@@ -63,6 +64,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val mutable = MutableStateFlow(AppState(settings = preferences.read()))
     val state = mutable.asStateFlow()
     private var work: Job? = null
+    private var liveAnalysis: Job? = null
     private var generation = 0
     private val persistence = Mutex()
 
@@ -82,7 +84,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 maia.initialize()
                 engine.initialize()
                 mutable.update { it.copy(ready = true, status = "离线引擎已就绪") }
-                if (!mutable.value.humanTurn) advance()
+                if (!mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
             } catch (e: Exception) { mutable.update { it.copy(error = "引擎启动失败：${e.message}", status = "启动失败") } }
         }
     }
@@ -90,8 +92,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val snapshot = mutable.value.game
         generation++
         work?.cancel()
+        liveAnalysis?.cancel()
         engine.stop()
-        mutable.update { it.copy(busy = false) }
+        mutable.update { it.copy(busy = false, analyzing = false) }
         if (saveSnapshot && snapshot.moves.isNotEmpty()) viewModelScope.launch { persist(snapshot) }
     }
     fun clearError() { mutable.update { it.copy(error = null) } }
@@ -125,6 +128,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.ready || state.busy || state.page != 0 || state.game.finished || !state.humanTurn) return
         try {
             if (uci !in ChessRules.legal(state.game.moves)) return
+            // Give a new move priority over optional background analysis.
+            cancelWork(saveSnapshot = false)
             val game = finishIfNecessary(state.game.copy(moves = state.game.moves + uci))
             mutable.update { it.copy(game = game, cursor = game.moves.size, brilliantNotices = emptyList()) }
             advance()
@@ -150,8 +155,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         work = viewModelScope.launch {
             try {
                 persist(mutable.value.game)
-                val last = mutable.value.game.moves.size
-                if (last > 0 && mutable.value.game.reviews.none { it.ply == last }) analyzePly(last, false, token)
                 currentCoroutineContext().ensureActive()
                 if (token == generation && !mutable.value.game.finished && !mutable.value.humanTurn && mutable.value.page == 0) {
                     mutable.update { it.copy(status = "对手正在思考…") }
@@ -161,22 +164,51 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     currentCoroutineContext().ensureActive()
                     if (token != generation) return@launch
                     val game = withContext(Dispatchers.Default) { finishIfNecessary(before.copy(moves = before.moves + move)) }
-                    mutable.update { it.copy(game = game, cursor = game.moves.size, status = "正在完成本回合…") }
+                    mutable.update { it.copy(game = game, cursor = game.moves.size) }
                     persist(game)
-                    analyzePly(game.moves.size, false, token)
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (token == generation) mutable.update { it.copy(error = "本次计算失败：${e.message}，可点击继续重试。") } }
             finally {
-                if (token == generation) mutable.update { it.copy(busy = false, status = if (it.game.finished) "${it.game.ending} · ${resultChinese(it.game)}" else "轮到${if (it.humanTurn) "你" else "对手"}走棋") }
+                if (token == generation) {
+                    mutable.update { it.copy(busy = false, status = if (it.game.finished) "${it.game.ending} · ${resultChinese(it.game)}" else "轮到${if (it.humanTurn) "你" else "对手"}走棋") }
+                    scheduleLiveAnalysis()
+                }
+            }
+        }
+    }
+    private fun scheduleLiveAnalysis() {
+        val state = mutable.value
+        if (!state.ready || state.busy || state.transitioning || state.page != 0 ||
+            (!state.humanTurn && !state.game.finished) || liveAnalysis?.isActive == true) return
+        val missing = (1..state.game.moves.size).filter { ply -> state.game.reviews.none { it.ply == ply } }
+        // Verify both sides of the current turn before catching up older interrupted work.
+        val pending = missing.filter { it >= state.game.moves.size - 1 } + missing.filter { it < state.game.moves.size - 1 }
+        if (pending.isEmpty()) return
+        val token = generation
+        mutable.update { it.copy(analyzing = true) }
+        liveAnalysis = viewModelScope.launch {
+            try {
+                for (ply in pending) {
+                    currentCoroutineContext().ensureActive()
+                    if (token != generation) return@launch
+                    analyzePly(ply, false, token)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (token == generation) mutable.update { it.copy(error = "后台分析暂未完成：${e.message}，可在复盘重试；仍可继续走棋。") }
+            } finally {
+                if (token == generation) mutable.update { it.copy(analyzing = false,
+                    status = if (it.game.finished) "${it.game.ending} · ${resultChinese(it.game)}" else "轮到你走棋") }
             }
         }
     }
     private suspend fun analyzePly(ply: Int, deep: Boolean, token: Int) {
+        if (token != generation) return
         val game = mutable.value.game
         mutable.update { it.copy(status = if (it.page == 1) {
             if (deep) "深度复评 $ply / ${game.moves.size}" else "正在分析第 ${(ply + 1) / 2} 回合…"
-        } else if (it.humanTurn || game.finished) "正在完成本回合…" else "对手正在思考…") }
+        } else "后台分析第 $ply 步${if (game.finished) "" else " · 可继续走棋"}") }
         val humanMove = (ply % 2 == 1) == game.humanWhite
         val scoringElo = if (humanMove) game.playerEloAtStart ?: mutable.value.profile.rating
             else game.opponentElo ?: if (game.mode == Difficulty.STRONG) 2800 else 500
@@ -186,7 +218,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + review).sortedBy { it.ply })
         mutable.update { state ->
             val notices = state.brilliantNotices.filterNot { it.ply == ply }
-            state.copy(game = updated, brilliantNotices = if (state.page == 0 && review.grade == Grade.BRILLIANT && !review.provisional)
+            state.copy(game = updated, brilliantNotices = if (state.page == 0 && review.ply >= state.game.moves.size - 1 && review.grade == Grade.BRILLIANT && !review.provisional)
                 (notices + review).sortedBy { it.ply }.takeLast(2) else notices)
         }
         persist(updated)
@@ -201,7 +233,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (page == mutable.value.page) return
         cancelWork()
         mutable.update { it.copy(page = page, cursor = it.game.moves.size, variation = emptyList(), status = "离线引擎已就绪") }
-        if (page == 0 && !mutable.value.game.finished && !mutable.value.humanTurn) advance()
+        if (page == 0) {
+            if (!mutable.value.game.finished && !mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
+        }
     }
     fun load(game: GameRecord) {
         if (mutable.value.transitioning) return
@@ -225,7 +259,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun retry() { if (mutable.value.page == 0) advance() else analyzeSelected() }
     fun analyzeSelected() {
         val state = mutable.value
-        if (!state.ready || state.busy || state.cursor == 0) return
+        if (!state.ready || state.busy || state.page != 1 || state.cursor == 0) return
         val token = generation
         mutable.update { it.copy(busy = true, error = null) }
         work = viewModelScope.launch {
@@ -236,7 +270,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun reviewAll() {
-        if (!mutable.value.ready || mutable.value.busy || mutable.value.game.moves.isEmpty()) return
+        if (!mutable.value.ready || mutable.value.busy || mutable.value.page != 1 || mutable.value.game.moves.isEmpty()) return
         val token = generation
         mutable.update { it.copy(busy = true, reviewDone = 0, error = null) }
         work = viewModelScope.launch {
@@ -259,7 +293,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         cancelWork()
         val game = mutable.value.game.copy(finished = true, result = if (mutable.value.game.humanWhite) "0-1" else "1-0", ending = "认输")
         mutable.update { it.copy(game = game, status = "对局已结束") }
-        viewModelScope.launch { persist(game) }
+        viewModelScope.launch { persist(game); scheduleLiveAnalysis() }
     }
     fun claimDraw() {
         val state = mutable.value
@@ -268,7 +302,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         cancelWork()
         val game = state.game.copy(finished = true, result = "1/2-1/2", ending = reason)
         mutable.update { it.copy(game = game, status = "和棋 · $reason") }
-        viewModelScope.launch { persist(game) }
+        viewModelScope.launch { persist(game); scheduleLiveAnalysis() }
     }
     fun delete(game: GameRecord) {
         if (mutable.value.transitioning) return
@@ -322,13 +356,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }, "导出运行诊断")
     }
     fun pauseForBackground() {
-        if (mutable.value.busy && !mutable.value.transitioning) { cancelWork(); mutable.update { it.copy(status = "已暂停计算，棋谱已保存") } }
+        if ((mutable.value.busy || mutable.value.analyzing) && !mutable.value.transitioning) { cancelWork(); mutable.update { it.copy(status = "已暂停计算，棋谱已保存") } }
     }
     fun resumeForeground() {
-        if (mutable.value.ready && mutable.value.page == 0 && !mutable.value.game.finished && !mutable.value.humanTurn && !mutable.value.busy) advance()
+        val state = mutable.value
+        if (state.ready && state.page == 0 && !state.busy) {
+            if (!state.game.finished && !state.humanTurn) advance() else scheduleLiveAnalysis()
+        }
     }
     fun resultChinese(game: GameRecord): String = when (game.result) {
         "1-0" -> "白方获胜"; "0-1" -> "黑方获胜"; "1/2-1/2" -> "和棋"; else -> "进行中"
     }
-    override fun onCleared() { work?.cancel(); engine.stop(); super.onCleared() }
+    override fun onCleared() { work?.cancel(); liveAnalysis?.cancel(); engine.stop(); super.onCleared() }
 }
