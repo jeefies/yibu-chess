@@ -47,7 +47,9 @@ Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推�
 
 产物：`app/build/outputs/apk/release/app-release.apk`。
 
-如当前 Cloud 入口无法下载工作区文件，将完整项目放到私有 GitHub 仓库后，可使用附带的 `.github/workflows/android.yml` 生成可下载 APK 构建产物。工作流文件已提供，但本次没有创建远程仓库或触发远程工作流。
+私有 GitHub 仓库：`https://github.com/well49112/yibu-chess`。手机浏览器登录该账号后，在 Releases 中下载已构建的 APK；工作区绝对路径不能直接作为手机的下载附件。
+
+附带的 `.github/workflows/android.yml` 支持手动构建 APK。先配置下文的签名 Secret，再到 Actions → Android APK → Run workflow 启动；每次构建会保存可下载产物。源码推送不会自动触发尚未配置签名的构建。
 
 ## 固定测试签名
 
