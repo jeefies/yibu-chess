@@ -18,6 +18,10 @@
 
 ## 在手机上安装
 
+[下载 ARM64 APK（约 83 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.1.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.1.0-arm64.apk)
+
+该仓库为私有仓库，请先在手机浏览器登录 `well49112`。安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
+
 1. 下载 `yibu-0.1.0-arm64.apk`，按系统提示允许下载来源安装。
 2. 首次启动会校验约 75 MiB 权重并复制到应用私有目录，稍等离线引擎就绪。
 3. 默认轻松练习、你执白；“新局”可以改难度和执棋颜色。
