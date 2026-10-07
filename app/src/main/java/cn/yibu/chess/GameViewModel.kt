@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import cn.yibu.chess.core.*
 import cn.yibu.chess.data.GameRepository
 import cn.yibu.chess.data.PlayPreferences
+import cn.yibu.chess.diagnostics.RuntimeDiagnostics
 import cn.yibu.chess.engine.MaiaModel
 import cn.yibu.chess.engine.NativeStockfish
 import kotlinx.coroutines.CancellationException
@@ -309,6 +310,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         return Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }, "开源许可证")
+    }
+    fun shareRuntimeDiagnostics(): Intent {
+        val application = getApplication<Application>()
+        val dir = File(application.cacheDir, "exports").apply { mkdirs() }
+        val file = File(dir, "yibu-runtime-diagnostics.json")
+        file.writeText(RuntimeDiagnostics.collect(application))
+        val uri = FileProvider.getUriForFile(application, "cn.yibu.chess.files", file)
+        return Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, "导出运行诊断")
     }
     fun pauseForBackground() {
         if (mutable.value.busy && !mutable.value.transitioning) { cancelWork(); mutable.update { it.copy(status = "已暂停计算，棋谱已保存") } }

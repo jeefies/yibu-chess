@@ -37,6 +37,7 @@ assert not any(issue.get("severity") in {"Error", "Fatal"} for issue in lint_iss
 metadata = {
     "built_at": datetime.now(timezone.utc).isoformat(),
     "version": version, "application_id": "cn.yibu.chess", "abi": "arm64-v8a",
+    "onnx_runtime_android": re.search(r'val onnxRuntimeVersion = "([^"]+)"', (root / "app/build.gradle.kts").read_text()).group(1),
     "min_sdk": 26, "target_sdk": 35, "engine": "Stockfish 17.1",
     "human_model": json.loads((root / "app/src/main/assets/models/maia3-metadata.json").read_text()),
     "certificate_sha256": "ac84a14d5fe6aa75a8550e375c24221048c9abc9b85d64fe02e1e4e58be1df03",
@@ -50,6 +51,7 @@ metadata = {
         "actual_onnx_model_inference": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.engine.MaiaModelTest.xml"),
         "saved_color_preferences": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.data.PlayPreferencesTest.xml"),
         "live_annotations_and_no_prompt_ui": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessScreenTest.xml"),
+        "runtime_exit_diagnostics": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.diagnostics.RuntimeDiagnosticsTest.xml"),
         "native_host_jni_probe": "passed",
         "android_lint": {"errors": 0, "warnings": sum(issue.get("severity") == "Warning" for issue in lint_issues)},
         "apk_signature": "v2 verified", "apk_zip_16kb_alignment": "passed",

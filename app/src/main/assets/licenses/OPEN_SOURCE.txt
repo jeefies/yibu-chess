@@ -1,6 +1,7 @@
+=== 组件与版本 ===
 # 开源组件与版本
 
-弈步 0.3.0 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
+弈步 0.3.1 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
 
 ## Stockfish
 
@@ -37,7 +38,7 @@
 ## ONNX Runtime
 
 - 上游：https://github.com/microsoft/onnxruntime
-- 版本：1.23.2，标签 v1.23.2（提交记录见 vendor/onnxruntime/UPSTREAM.json）。
+- 版本：1.24.3，标签 v1.24.3（提交记录见 vendor/onnxruntime/UPSTREAM.json）。
 - 使用 Maven Central 官方 Android ARM64 运行时；宿主测试使用相同版本 Linux JVM 运行时。
 - 许可证：MIT；完整许可与第三方通知见 vendor/onnxruntime/LICENSE 和 ThirdPartyNotices.txt。
 
@@ -52,7 +53,7 @@
 精确版本由 Gradle 文件固定。测试签名文件、构建缓存和本机 SDK 不属于源码包。
 
 
-===== 弈步 / Maia-3 · AGPL-3.0 =====
+=== 弈步 / Maia-3 AGPL-3.0 ===
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
@@ -716,7 +717,7 @@ For more information on this, and how to apply and follow the GNU AGPL, see
 <https://www.gnu.org/licenses/>.
 
 
-===== Stockfish · GPL-3.0-or-later =====
+=== Stockfish GPL-3.0-or-later ===
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
@@ -1393,7 +1394,7 @@ Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
 
 
-===== chesslib · Apache-2.0 =====
+=== chesslib Apache-2.0 ===
 
                                  Apache License
                            Version 2.0, January 2004
@@ -1598,7 +1599,7 @@ Public License instead of this License.  But first, please read
    limitations under the License.
 
 
-===== ONNX Runtime · MIT =====
+=== ONNX Runtime MIT ===
 MIT License
 
 Copyright (c) Microsoft Corporation
@@ -1622,7 +1623,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-===== ONNX Runtime ThirdPartyNotices =====
+=== ONNX Runtime Third-party Notices ===
 THIRD PARTY SOFTWARE NOTICES AND INFORMATION
 
 Do Not Translate or Localize
@@ -7428,41 +7429,6 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-_____
-
-composable_kernel
-
-https://github.com/ROCmSoftwarePlatform/composable_kernel
-
-Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
-Copyright (c) 2019-    , Advanced Micro Devices, Inc. (Letao Qin, Qianfeng Zhang, Liang Huang, Shaojie Wang)
-Copyright (c) 2022-    , Advanced Micro Devices, Inc. (Anthony Chang, Chunyu Lai, Illia Silin, Adam Osewski, Poyen Chen, Jehandad Khan)
-Copyright (c) 2019-2021, Advanced Micro Devices, Inc. (Hanwen Chang)
-Copyright (c) 2019-2020, Advanced Micro Devices, Inc. (Tejash Shah)
-Copyright (c) 2020     , Advanced Micro Devices, Inc. (Xiaoyan Zhou)
-Copyright (c) 2021-2022, Advanced Micro Devices, Inc. (Jianfeng Yan)
-
-SPDX-License-Identifier: MIT
-Copyright (c) 2018-2023, Advanced Micro Devices, Inc. All rights reserved.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 _____
 

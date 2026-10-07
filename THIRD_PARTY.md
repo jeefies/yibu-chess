@@ -1,6 +1,6 @@
 # 开源组件与版本
 
-弈步 0.3.0 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
+弈步 0.3.1 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
 
 ## Stockfish
 
@@ -37,7 +37,7 @@
 ## ONNX Runtime
 
 - 上游：https://github.com/microsoft/onnxruntime
-- 版本：1.23.2，标签 v1.23.2（提交记录见 vendor/onnxruntime/UPSTREAM.json）。
+- 版本：1.24.3，标签 v1.24.3（提交记录见 vendor/onnxruntime/UPSTREAM.json）。
 - 使用 Maven Central 官方 Android ARM64 运行时；宿主测试使用相同版本 Linux JVM 运行时。
 - 许可证：MIT；完整许可与第三方通知见 vendor/onnxruntime/LICENSE 和 ThirdPartyNotices.txt。
 

@@ -4,6 +4,9 @@ plugins {
     kotlin("plugin.compose")
     id("com.google.devtools.ksp")
 }
+// 1.23.2 can execute unsupported SME2 instructions on Xiaomi 17 / Android 16.
+// 1.24.3 is the Android Maven release verified by upstream for this device family.
+val onnxRuntimeVersion = "1.24.3"
 android {
     namespace = "cn.yibu.chess"
     compileSdk = 35
@@ -13,8 +16,9 @@ android {
         applicationId = "cn.yibu.chess"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.0"
+        versionCode = 5
+        versionName = "0.3.1"
+        buildConfigField("String", "ONNX_RUNTIME_VERSION", "\"$onnxRuntimeVersion\"")
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -41,7 +45,12 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Compress native libraries to keep the full offline APK below GitHub's 100 MiB limit.
+        // Android extracts them at installation; the libraries themselves retain 16 KB alignment.
+        jniLibs.useLegacyPackaging = true
+    }
 }
 tasks.withType<Test>().configureEach {
     providers.gradleProperty("startupNativeDir").orNull?.let { directory ->
@@ -61,12 +70,12 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:$onnxRuntimeVersion")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
-    testImplementation("com.microsoft.onnxruntime:onnxruntime:1.23.2")
+    testImplementation("com.microsoft.onnxruntime:onnxruntime:$onnxRuntimeVersion")
     testImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

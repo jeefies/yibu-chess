@@ -194,6 +194,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                 Text("Chess.com 完整算法未公开。这里用引擎分值和棋力估算预期得分。Maia 使用另一套棋谱分数范围，个人 Elo 与模型强度的对应仍是近似值，不能等同平台真人分数。", color = Muted, fontSize = 12.sp)
                 Text("Maia-3 / 弈步：AGPLv3\nStockfish：GPLv3-or-later\nONNX Runtime：MIT · chesslib：Apache-2.0\n完整许可和模型版本记录包含在源码及 APK 内。", fontSize = 12.sp)
                 TextButton(onClick = { context.startActivity(model.share(true)) }) { Text("导出对局诊断 JSON") }
+                TextButton(onClick = { context.startActivity(model.shareRuntimeDiagnostics()) }) { Text("导出运行诊断") }
                 TextButton(onClick = { context.startActivity(model.shareLicenses()) }) { Text("查看／导出开源许可证") }
             }
         }, confirmButton = { TextButton(onClick = { aboutDialog = false }) { Text("知道了") } })

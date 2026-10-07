@@ -14,7 +14,7 @@
 - 复盘：逐步导航、局势曲线、完整走棋列表、推荐/实战变化跟走、单步/整盘深度复评。
 - Room 自动保存对局和分析。切到后台停止当前计算，回前台可继续机器人回合；整盘分析按步保存。
 - 标准将杀/逼和、保守死局子力判断、五次重复/75 回合自动和棋；三次重复/50 回合允许申请和棋。
-- 导出 PGN、包含完整分析的 JSON、开源许可证；应用无 INTERNET 权限。
+- 导出 PGN、包含完整分析的 JSON、运行诊断与开源许可证；应用无 INTERNET 权限。
 
 Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。每盘独立随机种子、轻微温度变化（0.95–1.05）与累计概率 97% 的候选池提供变化；前 12 个半回合对最近 12 盘相同局面的 AI 重复走法适度减权（不会把玩家走法算作 AI 重复，也不会凭空加入低概率走法）。同一棋局恢复后保留种子。合理应对少或仅一着合法棋时仍可能重复，不能保证每局都不同。
 
@@ -22,18 +22,24 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 ## 在手机上安装
 
-[下载 ARM64 APK（约 94 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.3.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.3.0-arm64.apk)
+[下载 ARM64 APK（约 84 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.3.1-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.3.1-arm64.apk)
 
 该仓库为私有仓库，请先在手机浏览器登录 `well49112`。安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
 
-1. 下载 `yibu-0.3.0-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
+1. 下载 `yibu-0.3.1-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
 2. 首次启动会校验 Stockfish 与 Maia 权重并复制到应用私有目录，稍等离线引擎就绪。
 3. 首次使用默认匹配 Elo 500、随机执棋，直接进入对局。“新局”每盘重新抽颜色；“对局设置”可主动选匹配或最强及颜色。旧版未完成匹配局会改用 Maia 继续，保留原有计分资格。
 4. 断网/飞行模式仍可对弈与复盘。
 5. “复盘”中选择一步，可跟走推荐或实战变化。黄色箭头显示分支第一着；“下一步”逐步进入分支，“末尾”退出分支。
 6. 同一签名、同一包名且更高版本号的 APK 可以覆盖升级并保留棋谱。卸载会删除本地棋谱和个人分数，请先导出需要保留的 PGN/JSON。
 
-最低 Android 8.0 (API 26)，目标 SDK 35，原生库包含 16 KB ELF 对齐。首版仅打包 arm64，不适用于 32 位设备。
+最低 Android 8.0 (API 26)，目标 SDK 35，原生库包含 16 KB ELF 对齐，以压缩形式随 APK 打包并由 Android 安装时解压。首版仅打包 arm64，不适用于 32 位设备。
+
+## 0.3.1 小米 17 启动闪退修复
+
+将 Android 和宿主测试的 ONNX Runtime 从 1.23.2 升级到 1.24.3。旧运行时在 SM8850 / 小米 17 等只有 SME、没有 SME2 的芯片上会错误调用 SME2 指令，原生层 SIGILL 无法用 Kotlin 异常捕获。1.24.3 包含 [上游修复](https://github.com/microsoft/onnxruntime/pull/27403)，且有[相同芯片的 Android Maven 包验证记录](https://github.com/k2-fsa/sherpa-onnx/issues/3490#issuecomment-4211370944)。Maia 权重、走法选择与棋谱数据库保持兼容。
+
+“关于弈步 → 导出运行诊断”可导出设备、应用和运行库版本，以及 Android 11 及以上保存的最近 5 次本应用退出原因和可用的堆栈（每条最多 64 KiB，原生 protobuf 堆栈以 Base64 保留）。无需 ADB 或新权限，由用户手动分享；Android 8–10 仍可导出设备信息。Cloud 的宿主测试无法验证 SM8850 指令分派，实际 Xiaomi 17 Pro 仍需安装后确认。
 
 ## Cloud 构建
 
@@ -61,9 +67,11 @@ Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推�
 
 ## Maia 模型与复现
 
-固定 [Maia-3 上游](https://github.com/CSSLab/maia3) 提交 `1e13597c42d4858b7cfd7cfdae01e297263364b2` 和 [5M 检查点](https://huggingface.co/UofTCSSLab/Maia3-5M) 修订 `b6559de2398d7140b985f28fd2c19fb5e47ddabe`。上游源码与原始权重保存在 `vendor/maia3`，ONNX 权重及校验记录在 `app/src/main/assets/models`。Android 使用 ONNX Runtime 1.23.2 CPU，无 Python、网络或服务依赖。
+固定 [Maia-3 上游](https://github.com/CSSLab/maia3) 提交 `1e13597c42d4858b7cfd7cfdae01e297263364b2` 和 [5M 检查点](https://huggingface.co/UofTCSSLab/Maia3-5M) 修订 `b6559de2398d7140b985f28fd2c19fb5e47ddabe`。上游源码与原始权重保存在 `vendor/maia3`，ONNX 权重及校验记录在 `app/src/main/assets/models`。Android 使用 ONNX Runtime 1.24.3 CPU，无 Python、网络或服务依赖。
 
 转换只输出走法策略，opset 17；将 RMSNorm 展开成等价运算，按通道动态 int8 量化 MatMul。8 帧历史各自按该帧的执棋方编码，保留官方 4352 项走法词表，包括黑方镜像和四种升变；掩码使用完整规则局面处理易位、吃过路兵与将军限制。模型为约 6.3 MiB。
+
+权重元数据中的 `onnxruntime_version=1.23.2` 记录原始导出验证环境；移动端运行版本另由 Gradle、运行诊断和构建清单记录。
 
 在独立 Python 环境安装 `torch==2.8.0`（CPU）、`onnx==1.19.1`、`onnxruntime==1.23.2`、`python-chess==1.999`、NumPy 后运行 `python tools/export-maia.py` 可重新导出。脚本对 9 个局面 × 4 个 Elo 比较原始 PyTorch 与 ONNX：浮点误差小于 0.0002，量化后的合法走法概率总变差不超过 0.045；本次最大 0.02734，首选走法一致率 97.2%。这些指标验证转换，不代表难度已经与真人平台标定。
 
