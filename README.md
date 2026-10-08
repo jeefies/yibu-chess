@@ -22,11 +22,11 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 ## 在手机上安装
 
-[下载 ARM64 APK（约 84 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.3.2-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.3.2-arm64.apk)
+[下载 ARM64 APK（约 84 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.4.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.4.0-arm64.apk)
 
 该仓库为私有仓库，请先在手机浏览器登录 `well49112`。安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
 
-1. 下载 `yibu-0.3.2-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
+1. 下载 `yibu-0.4.0-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
 2. 首次启动会校验 Stockfish 与 Maia 权重并复制到应用私有目录，稍等离线引擎就绪。
 3. 首次使用默认匹配 Elo 500、随机执棋，直接进入对局。“新局”每盘重新抽颜色；“对局设置”可主动选匹配或最强及颜色。旧版未完成匹配局会改用 Maia 继续，保留原有计分资格。
 4. 断网/飞行模式仍可对弈与复盘。
@@ -34,6 +34,14 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 6. 同一签名、同一包名且更高版本号的 APK 可以覆盖升级并保留棋谱。卸载会删除本地棋谱和个人分数，请先导出需要保留的 PGN/JSON。
 
 最低 Android 8.0 (API 26)，目标 SDK 35，原生库包含 16 KB ELF 对齐，以压缩形式随 APK 打包并由 Android 安装时解压。首版仅打包 arm64，不适用于 32 位设备。
+
+## 0.4.0 界面改版与设计技能
+
+采用暖白、墨绿与统一线条图标；棋盘周围直接显示双方身份、执棋颜色和回合状态。对弈、复盘、棋谱使用统一间距、卡片和按钮。后台分析状态只在底部以简短文字呈现；完整分析集中在复盘。复盘的逐步操作与曲线放在棋盘下方，推荐与实战变化各有独立入口。棋谱改为按需加载的列表，保留删除确认和 Elo 结算信息。
+
+已安装 [Emil Kowalski 的设计技能](https://github.com/emilkowalski/skills) 到 `.agents/skills/`，固定上游提交 `e8a175de22ae1e49370fc144c1f3bb9aeedf988d`，包含全部 14 项技能及参考文件，保留 MIT 许可。本次应用 `emil-design-eng`：高频走棋和步进即时响应，偶尔点击的主要按钮仅有轻微按压反馈，遵循 Android 系统动画时长设置。设计决策见 [docs/UI-DESIGN.md](docs/UI-DESIGN.md)。
+
+自动渲染检查覆盖白黑棋盘、复盘详情、有棋谱和空棋谱状态、320dp 小屏设置以及长分析文本；同时运行真实 Maia 与同源 Stockfish JNI 的连续棋盘触摸回归。构建环境未连接真机，新版仍需在手机上完成外观与触感确认。
 
 ## 0.3.2 连续落子与更深入分析
 

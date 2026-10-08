@@ -54,6 +54,7 @@ metadata = {
         "runtime_exit_diagnostics": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.diagnostics.RuntimeDiagnosticsTest.xml"),
         "board_turn_and_readiness_taps": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessBoardTest.xml"),
         "actual_multi_turn_taps_and_background_recovery": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.PlayInteractionTest.xml"),
+        "native_compose_phone_layouts_and_screenshots": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.UiLayoutTest.xml"),
         "native_host_jni_probe": "passed",
         "android_lint": {"errors": 0, "warnings": sum(issue.get("severity") == "Warning" for issue in lint_issues)},
         "apk_signature": "v2 verified", "apk_zip_16kb_alignment": "passed",

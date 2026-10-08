@@ -65,9 +65,9 @@ fun ChessBoard(
             val index = if (flipped) row * 8 + 7 - col else (7 - row) * 8 + col
             val topLeft = Offset(col * cell, row * cell)
             val light = (row + col) % 2 == 0
-            drawRect(if (light) Color(0xFFE4E2CD) else Color(0xFF738B69), topLeft, Size(cell, cell))
-            if (index in highlighted) drawRect(Color(0xFFDBCF62).copy(alpha = .5f), topLeft, Size(cell, cell))
-            if (index == selected) drawRect(Color(0xFFEAC74B).copy(alpha = .70f), topLeft, Size(cell, cell))
+            drawRect(if (light) Color(0xFFEEEBDD) else Color(0xFF799184), topLeft, Size(cell, cell))
+            if (index in highlighted) drawRect(Color(0xFFDFCE71).copy(alpha = .56f), topLeft, Size(cell, cell))
+            if (index == selected) drawRect(Color(0xFFE6C463).copy(alpha = .80f), topLeft, Size(cell, cell))
             val piece = pieces[index]
             val c = center(index)
             if (piece != ' ') {
@@ -91,7 +91,7 @@ fun ChessBoard(
             }
             paint.style = Paint.Style.FILL
             paint.textSize = cell * .19f
-            paint.color = if (light) android.graphics.Color.rgb(78, 100, 69) else android.graphics.Color.rgb(234, 233, 214)
+            paint.color = android.graphics.Color.rgb(32, 56, 44)
             if (col == 0) drawContext.canvas.nativeCanvas.drawText((index / 8 + 1).toString(), topLeft.x + cell * .12f, topLeft.y + cell * .22f, paint)
             if (row == 7) drawContext.canvas.nativeCanvas.drawText(('a' + index % 8).toString(), topLeft.x + cell * .89f, topLeft.y + cell * .94f, paint)
         }

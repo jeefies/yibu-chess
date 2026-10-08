@@ -1,6 +1,6 @@
 # 开源组件与版本
 
-弈步 0.3.2 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
+弈步 0.4.0 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
 
 ## Stockfish
 
@@ -50,3 +50,11 @@
 - 原生 C++ 标准库：Android NDK libc++，Apache-2.0 WITH LLVM-exception。
 
 精确版本由 Gradle 文件固定。测试签名文件、构建缓存和本机 SDK 不属于源码包。
+
+## 开发用设计技能
+
+- 上游：https://github.com/emilkowalski/skills
+- 提交：e8a175de22ae1e49370fc144c1f3bb9aeedf988d
+- 安装位置：.agents/skills，包含上游技能与参考文件。
+- 许可证：MIT，全文见 .agents/skills/LICENSE-emilkowalski。
+- 本次界面使用 emil-design-eng 原则，图标为应用自有 Compose / Android 矢量绘制；技能文件不作为运行时依赖打包到 APK。

@@ -2,9 +2,12 @@ package cn.yibu.chess.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -14,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -23,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,17 +40,12 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.tanh
 
-private val Accent = Color(0xFFB6D99A)
-private val Background = Color(0xFF111813)
-private val Panel = Color(0xFF1D2920)
-private val Muted = Color(0xFFA5B0A4)
-
 private fun gradeColor(grade: Grade): Color = when (grade) {
-    Grade.BRILLIANT -> Color(0xFF69D7CB)
+    Grade.BRILLIANT -> Color(0xFF147D82)
     Grade.GREAT, Grade.BEST, Grade.EXCELLENT -> Accent
-    Grade.INACCURACY -> Color(0xFFE4CE6C)
-    Grade.MISTAKE -> Color(0xFFF0AC70)
-    Grade.BLUNDER -> Color(0xFFEE8F85)
+    Grade.INACCURACY -> Gold
+    Grade.MISTAKE -> Color(0xFFB46C27)
+    Grade.BLUNDER -> Danger
     else -> Muted
 }
 
@@ -64,111 +64,128 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
     var promotion by remember { mutableStateOf<List<String>>(emptyList()) }
     var selected by remember(state.game.id, state.boardHistory) { mutableStateOf<Int?>(null) }
     var flipOverride by remember(state.game.id) { mutableStateOf(false) }
+    val contentScroll = rememberScrollState()
+    LaunchedEffect(state.page) { contentScroll.scrollTo(0) }
     val fen = remember(state.boardHistory) { ChessRules.board(state.boardHistory).fen }
     val legal = remember(state.boardHistory) { ChessRules.legal(state.boardHistory) }
     val targets = remember(selected, legal) { legal.filter { it.take(2) == selected?.let(ChessRules::squareName) }.map { ChessRules.squareIndex(it.substring(2, 4)) }.toSet() }
-    val colors = darkColorScheme(primary = Accent, onPrimary = Background, background = Background,
-        surface = Panel, onSurface = Color(0xFFEAF0E5), surfaceVariant = Color(0xFF2B382D), onSurfaceVariant = Muted)
-    MaterialTheme(colorScheme = colors) {
+    ChessTheme {
         Scaffold(containerColor = Background, bottomBar = {
-            NavigationBar(containerColor = Background) {
-                listOf("对弈" to "♞", "复盘" to "↗", "棋谱" to "☷").forEachIndexed { index, (name, glyph) ->
-                    NavigationBarItem(selected = state.page == index, onClick = { model.page(index) },
-                        icon = { Text(glyph, fontSize = 23.sp) }, label = { Text(name) },
-                        colors = NavigationBarItemDefaults.colors(indicatorColor = Panel))
+            Surface(color = Background) {
+                Column {
+                    HorizontalDivider(color = Line.copy(alpha = .6f))
+                    NavigationBar(containerColor = Background, tonalElevation = 0.dp) {
+                        listOf("对弈" to ChessIcon.KNIGHT, "复盘" to ChessIcon.REVIEW, "棋谱" to ChessIcon.LIBRARY).forEachIndexed { index, (name, icon) ->
+                            NavigationBarItem(selected = state.page == index, onClick = { model.page(index) },
+                                icon = { LineIcon(icon) }, label = { Text(name, fontSize = 12.sp) },
+                                colors = NavigationBarItemDefaults.colors(indicatorColor = Soft,
+                                    selectedIconColor = Accent, selectedTextColor = Accent,
+                                    unselectedIconColor = Muted, unselectedTextColor = Muted))
+                        }
+                    }
                 }
             }
         }) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
-                Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("♞", color = Accent, fontSize = 34.sp)
-                    Spacer(Modifier.width(9.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("弈步", fontWeight = FontWeight.Bold, fontSize = 23.sp)
-                        Text("个人 Elo ${state.profile.rating} · 已结算 ${state.profile.ratedGames} 盘", color = Accent, fontSize = 11.sp)
-                    }
-                    TextButton(onClick = { aboutDialog = true }) { Text("说明") }
-                    FilledTonalButton(onClick = { model.newGame() }, enabled = state.ready && !state.transitioning) { Text("新局") }
-                }
-                if (state.page == 2) {
-                    Library(state, model)
-                } else {
-                    Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(if (state.page == 1) "逐步复盘" else state.game.mode.chinese, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                                Text(if (state.page == 1) "${state.game.moves.size} 步 · ${model.resultChinese(state.game)}" else "你执${if (state.game.humanWhite) "白" else "黑"} · ${state.game.opponentEngine}", color = Muted, fontSize = 12.sp)
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+                Column(Modifier.widthIn(max = 560.dp).fillMaxSize().padding(horizontal = 16.dp)) {
+                    AppHeader(state, model) { aboutDialog = true }
+                    if (state.page == 2) {
+                        Library(state, model)
+                    } else {
+                        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(contentScroll),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(if (state.page == 1) "逐步复盘" else if (state.game.mode == Difficulty.STRONG) "挑战最强" else "日常对弈",
+                                        style = MaterialTheme.typography.titleLarge)
+                                    Text(if (state.page == 1) "${state.game.moves.size} 步 · ${model.resultChinese(state.game)}"
+                                        else if (state.game.rated) "匹配你的棋力，每盘进步一点" else "专注练习 · 本局不计分",
+                                        color = Muted, fontSize = 12.sp)
+                                }
+                                if (state.page == 0) IconAction(ChessIcon.SETTINGS, "对局设置", { newDialog = true }, state.ready && !state.transitioning)
+                                else StatusPill(if (!state.game.humanWhite xor flipOverride) "黑方在下" else "白方在下")
                             }
-                            Text("● ${if (state.ready) "离线就绪" else "准备中"}", color = if (state.ready) Accent else Muted, fontSize = 12.sp)
-                        }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(state.game.opponentLabel, color = Accent, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { newDialog = true }, enabled = state.ready && !state.transitioning) { Text("对局设置") }
-                        }
-                        state.game.ratingChange?.let { change ->
-                            Text("本局 Elo ${change.before} → ${change.after}（${if (change.delta > 0) "+" else ""}${change.delta}）", color = Accent, fontSize = 14.sp)
-                        }
-                        if (state.page == 1) EvaluationChart(state.game, state.cursor, model::cursor)
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (state.variation.isNotEmpty()) "推荐／实战分支 · 第 ${state.variationStep} 步" else if (state.page == 1) "第 ${state.cursor} / ${state.game.moves.size} 步" else if (state.humanTurn) "轮到你走棋" else "对手的回合", color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { flipOverride = !flipOverride }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("翻转", fontSize = 12.sp) }
-                        }
-                        ChessBoard(fen, flipped = !state.game.humanWhite xor flipOverride,
-                            selected = selected, targets = if (state.page == 0 && !state.busy) targets else emptySet(),
-                            lastMove = state.boardHistory.lastOrNull(),
-                            arrow = if (state.variation.isNotEmpty() && state.variationStep == 0) state.variation.first() else null) { square ->
-                            if (state.page == 0 && state.ready && !state.busy && state.humanTurn && !state.game.finished) {
-                                val choices = legal.filter { it.take(2) == selected?.let(ChessRules::squareName) && it.substring(2, 4) == ChessRules.squareName(square) }
-                                when {
-                                    choices.size > 1 -> { promotion = choices; selected = null }
-                                    choices.size == 1 -> { model.play(choices.first()); selected = null }
-                                    legal.any { it.take(2) == ChessRules.squareName(square) } -> selected = if (selected == square) null else square
-                                    else -> selected = null
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OpponentRow(state)
+                                Box(Modifier.shadow(5.dp, RoundedCornerShape(15.dp), ambientColor = Ink.copy(alpha = .12f), spotColor = Ink.copy(alpha = .12f))
+                                    .background(Ink, RoundedCornerShape(15.dp)).padding(4.dp)) {
+                                    ChessBoard(fen, flipped = !state.game.humanWhite xor flipOverride,
+                                        selected = selected, targets = if (state.page == 0 && !state.busy) targets else emptySet(),
+                                        lastMove = state.boardHistory.lastOrNull(),
+                                        arrow = if (state.variation.isNotEmpty() && state.variationStep == 0) state.variation.first() else null) { square ->
+                                        if (state.page == 0 && state.ready && !state.busy && state.humanTurn && !state.game.finished) {
+                                            val choices = legal.filter { it.take(2) == selected?.let(ChessRules::squareName) && it.substring(2, 4) == ChessRules.squareName(square) }
+                                            when {
+                                                choices.size > 1 -> { promotion = choices; selected = null }
+                                                choices.size == 1 -> { model.play(choices.first()); selected = null }
+                                                legal.any { it.take(2) == ChessRules.squareName(square) } -> selected = if (selected == square) null else square
+                                                else -> selected = null
+                                            }
+                                        }
+                                    }
+                                }
+                                PlayerRow(state) { flipOverride = !flipOverride }
+                            }
+                            if (state.page == 1) {
+                                ReviewNavigation(state, model)
+                                EvaluationChart(state.game, state.cursor, model::cursor)
+                            }
+                            MoveStrip(state, model)
+                            if (state.page == 1) RatingCard(state, model) else BrilliantCards(state)
+                            state.game.ratingChange?.let { change ->
+                                Surface(color = Soft, shape = RoundedCornerShape(16.dp)) {
+                                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("${model.resultChinese(state.game)} · ${state.game.ending}", fontWeight = FontWeight.SemiBold)
+                                            Text("本局 Elo ${change.before} → ${change.after}", color = Muted, fontSize = 12.sp)
+                                        }
+                                        Text("${if (change.delta > 0) "+" else ""}${change.delta}", color = Accent,
+                                            fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
                             }
-                        }
-                        if (state.page == 1) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(onClick = { model.cursor(0) }, modifier = Modifier.weight(1f)) { Text("起始") }
-                                FilledTonalButton(onClick = { model.step(-1) }, modifier = Modifier.weight(1f)) { Text("上一步") }
-                                FilledTonalButton(onClick = { model.step(1) }, modifier = Modifier.weight(1f)) { Text("下一步") }
-                                OutlinedButton(onClick = { model.cursor(state.game.moves.size) }, modifier = Modifier.weight(1f)) { Text("末尾") }
-                            }
-                        }
-                        MoveStrip(state, model)
-                        if (state.busy || state.analyzing || (!state.ready && state.error == null)) {
-                            Row(Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(10.dp))
-                                Text(state.status, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                if (state.page == 1 && state.busy) TextButton(onClick = model::pauseReview) { Text("暂停") }
-                            }
-                        }
-                        if (state.page == 1) RatingCard(state, model) else BrilliantCards(state)
-                        if (state.error != null) {
-                            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF422B28))) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Text(state.error!!, fontSize = 13.sp)
-                                    TextButton(onClick = model::retry, enabled = state.ready && !state.busy) { Text("继续／重试") }
+                            if (state.busy || (!state.ready && state.error == null) || (state.analyzing && state.page == 1)) {
+                                Row(Modifier.fillMaxWidth().background(Soft, RoundedCornerShape(14.dp)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(state.status, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                    if (state.page == 1 && state.busy) TextButton(onClick = model::pauseReview) { Text("暂停") }
                                 }
                             }
-                        }
-                        if (state.page == 1) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = model::reviewAll, enabled = state.ready && !state.busy && state.game.moves.isNotEmpty(), modifier = Modifier.weight(1f)) { Text("整盘深度复评") }
-                                OutlinedButton(onClick = { context.startActivity(model.share(false)) }, enabled = state.game.moves.isNotEmpty()) { Text("导出 PGN") }
+                            if (state.error != null) {
+                                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(14.dp)) {
+                                    Column(Modifier.padding(14.dp)) {
+                                        Text(state.error, fontSize = 13.sp, color = Danger)
+                                        TextButton(onClick = model::retry, enabled = state.ready && !state.busy) { Text("继续／重试") }
+                                    }
+                                }
                             }
-                            Text("初评与深度复评可能不同；分析按步保存，可暂停后继续。", color = Muted, fontSize = 11.sp)
-                        } else {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { model.page(1) }, enabled = state.game.moves.isNotEmpty(), modifier = Modifier.weight(1f)) { Text(if (state.game.finished) "赛后复盘" else "查看复盘") }
-                                if (!state.game.finished) OutlinedButton(onClick = { resignDialog = true }, enabled = !state.busy) { Text("认输") }
+                            if (state.page == 1) {
+                                PrimaryAction("整盘深度复评", model::reviewAll, Modifier.fillMaxWidth(),
+                                    state.ready && !state.busy && state.game.moves.isNotEmpty(), ChessIcon.REVIEW)
+                                OutlinedButton(onClick = { context.startActivity(model.share(false)) },
+                                    enabled = state.game.moves.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                                    LineIcon(ChessIcon.SHARE, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("导出 PGN")
+                                }
+                                Text("分析按步保存，可随时暂停。深度复评可能更新初评结果。", color = Muted, fontSize = 11.sp)
+                            } else {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedButton(onClick = { model.page(1) }, enabled = state.game.moves.isNotEmpty(),
+                                        modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(14.dp)) {
+                                        LineIcon(ChessIcon.REVIEW, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                                        Text(if (state.game.finished) "赛后复盘" else "查看复盘")
+                                    }
+                                    if (!state.game.finished) TextButton(onClick = { resignDialog = true }, enabled = !state.busy) { Text("认输", color = Muted) }
+                                }
+                                if (!state.game.finished && state.humanTurn && ChessRules.drawClaim(state.game.moves) != null)
+                                    OutlinedButton(onClick = model::claimDraw, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("申请和棋 · ${ChessRules.drawClaim(state.game.moves)}") }
+                                if (state.game.finished && state.game.ratingChange == null)
+                                    Text("${model.resultChinese(state.game)} · ${state.game.ending}", color = Accent, fontSize = 14.sp)
+                                if (!state.game.finished) Text("${if (state.analyzing) "棋谱正在后台整理" else "棋谱自动保存"} · 完整分析在复盘查看", color = Muted,
+                                    fontSize = 11.sp, modifier = Modifier.fillMaxWidth())
                             }
-                            if (!state.game.finished && state.humanTurn && ChessRules.drawClaim(state.game.moves) != null)
-                                OutlinedButton(onClick = model::claimDraw, enabled = !state.busy) { Text("申请和棋 · ${ChessRules.drawClaim(state.game.moves)}") }
-                            if (state.game.finished) Text("${model.resultChinese(state.game)} · ${state.game.ending}", color = Accent, fontSize = 14.sp)
+                            Spacer(Modifier.height(10.dp))
                         }
-                        Spacer(Modifier.height(12.dp))
                     }
                 }
             }
@@ -202,9 +219,92 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
 }
 
 @Composable
+private fun AppHeader(state: AppState, model: GameViewModel, onAbout: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(38.dp).background(Accent, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            LineIcon(ChessIcon.KNIGHT, Modifier.size(25.dp), Color.White)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text("弈步", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+            Text("${state.profile.rating} ELO · ${state.profile.ratedGames} 盘计分", color = Muted,
+                fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        IconAction(ChessIcon.INFO, "说明", onAbout)
+        PrimaryAction("新局", { model.newGame() }, enabled = state.ready && !state.transitioning)
+    }
+}
+
+@Composable
+private fun OpponentRow(state: AppState) {
+    val opponentName = if (state.game.opponentEngine.startsWith("Maia")) "Maia" else "Stockfish"
+    if (state.page == 1) {
+        Text(if (state.game.mode == Difficulty.STRONG) "Stockfish 对局 · 最强"
+            else "$opponentName 对局 · 对手 Elo ${state.game.opponentElo ?: 500}",
+            color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
+        return
+    }
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(38.dp).background(Soft, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            LineIcon(ChessIcon.KNIGHT, color = Accent)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(if (state.game.mode == Difficulty.STRONG) "Stockfish · 最强"
+                else if (opponentName == "Maia") "Maia · 拟人对手" else "Stockfish · 练习对手",
+                fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (state.game.mode == Difficulty.STRONG) "全棋力 · 不计 Elo"
+                else "Elo ${state.game.opponentElo ?: 500} · 执${if (state.game.humanWhite) "黑" else "白"}", color = Muted, fontSize = 11.sp)
+        }
+        StatusPill(if (!state.ready) "准备中" else if (state.page == 0 && state.busy && !state.humanTurn) "思考中" else "离线", dot = true)
+    }
+}
+
+@Composable
+private fun PlayerRow(state: AppState, onFlip: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(if (state.game.humanWhite) Color.White else Ink, RoundedCornerShape(3.dp))
+            .border(1.dp, Line, RoundedCornerShape(3.dp)))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text("你 · ${state.profile.rating}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("执${if (state.game.humanWhite) "白" else "黑"}", color = Muted, fontSize = 11.sp)
+        }
+        Text(when {
+            state.variation.isNotEmpty() -> "变化 · 第 ${state.variationStep} 步"
+            state.page == 1 -> "第 ${state.cursor} / ${state.game.moves.size} 步"
+            state.game.finished -> "对局结束"
+            !state.ready -> "引擎准备中"
+            state.humanTurn -> "轮到你走棋"
+            else -> "对手的回合"
+        }, color = if (state.page == 0 && state.ready && state.humanTurn && !state.game.finished) Accent else Muted,
+            fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        IconAction(ChessIcon.FLIP, "翻转", onFlip)
+    }
+}
+
+@Composable
+private fun ReviewNavigation(state: AppState, model: GameViewModel) {
+    Surface(color = Soft, shape = RoundedCornerShape(16.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
+            listOf(Triple("起始", ChessIcon.FIRST, { model.cursor(0) }),
+                Triple("上一步", ChessIcon.PREVIOUS, { model.step(-1) }),
+                Triple("下一步", ChessIcon.NEXT, { model.step(1) }),
+                Triple("末尾", ChessIcon.LAST, { model.cursor(state.game.moves.size) })).forEach { (name, icon, click) ->
+                Column(Modifier.weight(1f).clickable(onClick = click).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    LineIcon(icon, Modifier.size(22.dp), Accent)
+                    Spacer(Modifier.height(4.dp))
+                    Text(name, fontSize = 11.sp, color = Accent)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun BrilliantCards(state: AppState) {
     state.brilliantNotices.filter { it.grade == Grade.BRILLIANT && !it.provisional && it.brilliantReason != null && it.brilliantPlan != null }.forEach { review ->
-        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel)) {
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFE5F3F0))) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${if (review.moverWhite == state.game.humanWhite) "你" else "对手"} · ${review.san} !!", color = gradeColor(Grade.BRILLIANT), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(review.brilliantReason!!, fontSize = 13.sp)
@@ -217,7 +317,7 @@ internal fun BrilliantCards(state: AppState) {
 @Composable
 private fun RatingCard(state: AppState, model: GameViewModel) {
     val review = state.chosenReview
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Panel)) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Panel)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             if (review == null) {
                 Text(if (state.game.moves.isEmpty()) "从第一步开始" else "本步尚未完成分析", fontWeight = FontWeight.SemiBold)
@@ -236,14 +336,16 @@ private fun RatingCard(state: AppState, model: GameViewModel) {
                 val root = state.game.moves.take(review.ply - 1)
                 val bestSan = remember(review, root) { ChessRules.san(root, review.bestMove) }
                 Text("推荐 $bestSan  ·  得分损失 ${String.format(Locale.ROOT, "%.1f", review.pointsLost * 100)} 个百分点", color = Accent, fontSize = 13.sp)
-                Text(review.explanation, color = Color(0xFFD1DACA), fontSize = 13.sp, lineHeight = 20.sp)
+                Text(review.explanation, color = Ink, fontSize = 13.sp, lineHeight = 21.sp)
                 if (state.page == 1) {
                     Text("推荐：${ChessRules.variationSan(root, review.best.pv.take(6)).joinToString("  ")}", color = Muted, fontSize = 12.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = { model.showVariation(true) }) { Text("跟走推荐") }
-                        OutlinedButton(onClick = { model.showVariation(false) }) { Text("实战变化") }
-                        TextButton(onClick = model::analyzeSelected, enabled = !state.busy && state.ready) { Text("复评") }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = { model.showVariation(true) }, modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 6.dp)) { Text("跟走推荐", fontSize = 12.sp) }
+                        OutlinedButton(onClick = { model.showVariation(false) }, modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 6.dp)) { Text("实战变化", fontSize = 12.sp) }
                     }
+                    TextButton(onClick = model::analyzeSelected, enabled = !state.busy && state.ready) { Text("复评本步") }
                 }
             }
         }
@@ -255,17 +357,18 @@ private fun MoveStrip(state: AppState, model: GameViewModel) {
     val sans = remember(state.game.moves) { ChessRules.sanMoves(state.game.moves) }
     val scroll = rememberLazyListState()
     LaunchedEffect(state.game.moves.size, state.cursor, state.page) {
-        if (sans.isNotEmpty()) scroll.animateScrollToItem((if (state.page == 1) state.cursor - 1 else sans.lastIndex).coerceIn(0, sans.lastIndex))
+        // Every move is a frequent interaction: keep scrolling immediate, not animated.
+        if (sans.isNotEmpty()) scroll.scrollToItem((if (state.page == 1) state.cursor - 1 else sans.lastIndex).coerceIn(0, sans.lastIndex))
     }
     LazyRow(state = scroll, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
         itemsIndexed(sans) { index, san ->
             val review = state.game.reviews.find { it.ply == index + 1 }
             val active = (if (state.page == 1) state.cursor else state.game.moves.size) == index + 1
-            Surface(color = if (active) Color(0xFF354631) else Panel, shape = RoundedCornerShape(9.dp), modifier = Modifier.clickable { if (state.page != 1) model.page(1); model.cursor(index + 1) }) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 9.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("${index / 2 + 1}${if (index % 2 == 0) "." else "…"} $san", fontSize = 13.sp)
+            Surface(color = if (active) Accent else Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.clickable { if (state.page != 1) model.page(1); model.cursor(index + 1) }) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("${index / 2 + 1}${if (index % 2 == 0) "." else "…"} $san", fontSize = 13.sp, color = if (active) Color.White else Ink)
                     if (state.page == 1 || (review?.grade == Grade.BRILLIANT && !review.provisional))
-                        Text(review?.grade?.symbol?.ifEmpty { "·" } ?: "…", color = review?.grade?.let(::gradeColor) ?: Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(review?.grade?.symbol?.ifEmpty { "·" } ?: "…", color = if (active) Color.White else review?.grade?.let(::gradeColor) ?: Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
@@ -274,18 +377,18 @@ private fun MoveStrip(state: AppState, model: GameViewModel) {
 
 @Composable
 private fun EvaluationChart(game: GameRecord, cursor: Int, onSelect: (Int) -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = Panel)) {
-        Column(Modifier.padding(12.dp)) {
+    Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Panel)) {
+        Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth()) {
-                Text("局势变化", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                Text("局势变化", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Text("白方视角 · 点击跳转", fontSize = 11.sp, color = Muted)
             }
             val points = game.reviews.associate { it.ply to tanh(it.played.whiteScore(it.moverWhite) / 3.0).toFloat() }
-            Canvas(Modifier.fillMaxWidth().height(80.dp).pointerInput(game.moves.size) {
+            Canvas(Modifier.fillMaxWidth().padding(top = 10.dp).height(76.dp).pointerInput(game.moves.size) {
                 detectTapGestures { onSelect((it.x / size.width * game.moves.size).toInt().coerceIn(0, game.moves.size)) }
             }) {
                 val middle = size.height / 2
-                drawLine(Color(0xFF50604F), Offset(0f, middle), Offset(size.width, middle), 1.dp.toPx())
+                drawLine(Line, Offset(0f, middle), Offset(size.width, middle), 1.dp.toPx())
                 val count = game.moves.size.coerceAtLeast(1)
                 val path = Path()
                 var previousPly = -2
@@ -298,7 +401,7 @@ private fun EvaluationChart(game: GameRecord, cursor: Int, onSelect: (Int) -> Un
                 }
                 drawPath(path, Accent, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
                 val x = size.width * cursor / count
-                drawLine(Color(0xFFE1CA78), Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
+                drawLine(Gold, Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
             }
         }
     }
@@ -308,32 +411,54 @@ private fun EvaluationChart(game: GameRecord, cursor: Int, onSelect: (Int) -> Un
 private fun Library(state: AppState, model: GameViewModel) {
     val formatter = remember { SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA) }
     var pendingDelete by remember { mutableStateOf<GameRecord?>(null) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("我的棋谱", fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-        Text("保存在这台手机 · ${state.games.size} 盘", color = Muted, fontSize = 12.sp)
-        if (state.error != null) Text(state.error, color = Color(0xFFEE8F85), fontSize = 13.sp)
-        if (state.games.isEmpty()) Text("开始一盘对弈，棋谱会自动保存。", color = Muted, modifier = Modifier.padding(vertical = 40.dp))
-        state.games.forEach { game ->
-            Card(Modifier.fillMaxWidth().clickable { model.load(game) }, colors = CardDefaults.cardColors(containerColor = Panel)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Row {
-                        Text(game.opponentLabel, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), fontSize = 14.sp)
-                        Text(model.resultChinese(game), color = Accent, fontSize = 12.sp)
+    LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+        item {
+            Text("我的棋谱", style = MaterialTheme.typography.titleLarge)
+            Text("${state.games.size} 盘对局 · 保存在这台手机", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+        }
+        if (state.error != null) item { Text(state.error, color = Danger, fontSize = 13.sp) }
+        if (state.games.isEmpty()) item {
+            Column(Modifier.fillMaxWidth().background(Soft, RoundedCornerShape(20.dp)).padding(horizontal = 24.dp, vertical = 40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LineIcon(ChessIcon.LIBRARY, Modifier.size(36.dp), Accent)
+                Text("每一盘，都值得回看", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text("开始对弈后，棋谱会自动保存在这里。", color = Muted, fontSize = 12.sp)
+                PrimaryAction("开始一盘", { model.newGame() }, enabled = state.ready && !state.transitioning)
+            }
+        }
+        items(state.games, key = { it.id }) { game ->
+            Card(Modifier.fillMaxWidth().clickable { model.load(game) }, shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Panel)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(36.dp).background(Soft, RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
+                            LineIcon(ChessIcon.KNIGHT, Modifier.size(22.dp), Accent)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(if (game.mode == Difficulty.STRONG) "挑战最强" else "匹配对局", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text(formatter.format(Date(game.startedAt)), color = Muted, fontSize = 11.sp)
+                        }
+                        StatusPill(model.resultChinese(game), color = if (game.result == "*") Muted else Accent)
                     }
-                    Text("${formatter.format(Date(game.startedAt))} · 你执${if (game.humanWhite) "白" else "黑"} · ${game.moves.size} 步", color = Muted, fontSize = 12.sp)
+                    Text("你执${if (game.humanWhite) "白" else "黑"} · ${game.moves.size} 步 · ${game.opponentLabel}", color = Muted, fontSize = 12.sp)
                     val mistakes = game.reviews.count { it.moverWhite == game.humanWhite && it.grade in listOf(Grade.MISTAKE, Grade.BLUNDER) }
                     Text("已分析 ${game.reviews.size} 步 · 你的失误 $mistakes 次", color = Muted, fontSize = 12.sp)
+                    HorizontalDivider(color = Line.copy(alpha = .65f))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val change = game.ratingChange
                         Text(if (change != null) "Elo ${change.before} → ${change.after}（${if (change.delta > 0) "+" else ""}${change.delta}）"
                             else if (game.rated) "${if (game.finished) "正在结算" else "结束后结算"} Elo" else "本局不计分",
                             color = Accent, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { pendingDelete = game }, enabled = !state.transitioning) { Text("删除", color = Color(0xFFEE8F85)) }
+                        TextButton(onClick = { pendingDelete = game }, enabled = !state.transitioning,
+                            contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            LineIcon(ChessIcon.TRASH, Modifier.size(16.dp), Danger)
+                            Spacer(Modifier.width(5.dp)); Text("删除", color = Danger, fontSize = 12.sp)
+                        }
                     }
                 }
             }
         }
-        Spacer(Modifier.height(20.dp))
     }
     pendingDelete?.let { game ->
         AlertDialog(onDismissRequest = { pendingDelete = null }, title = { Text("删除这盘棋谱？") },
@@ -360,11 +485,11 @@ private fun NewGameDialog(initial: PlaySettings, rating: Int, onDismiss: () -> U
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("执棋", modifier = Modifier.weight(1f))
+            Text("执棋颜色", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ColorPreference.entries.forEach { option ->
-                    FilterChip(selected = color == option, onClick = { color = option }, label = { Text(option.chinese) })
-                    Spacer(Modifier.width(4.dp))
+                    FilterChip(selected = color == option, onClick = { color = option }, modifier = Modifier.weight(1f),
+                        label = { Text(option.chinese, fontSize = 12.sp) })
                 }
             }
             Text("选择会记住；随机每盘重新抽取。当前对局会保留在棋谱中。", fontSize = 11.sp, color = Muted, modifier = Modifier.padding(top = 10.dp))

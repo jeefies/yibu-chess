@@ -35,7 +35,7 @@ class ChessScreenTest {
         compose.onAllNodesWithText("推荐", substring = true).assertCountEquals(0)
         compose.onNodeWithText("普通评级说明").assertDoesNotExist()
         compose.runOnIdle { state.value = state.value.copy(page = 1) }
-        compose.onNodeWithText("e5 · 严重失误").assertExists()
+        compose.onNodeWithText("e5 · 严重失误").performScrollTo().assertExists()
         compose.onAllNodesWithText("推荐", substring = true).assertAny(hasText("推荐", substring = true))
     }
     @Test fun confirmedBrilliantsFromEitherSideExplainThePlan() {
@@ -57,7 +57,7 @@ class ChessScreenTest {
         compose.onNodeWithText("新局").performClick()
         compose.onNodeWithText("开始对弈").assertDoesNotExist()
         compose.onNodeWithText("随机").assertDoesNotExist()
-        compose.onNodeWithText("对局设置").performClick()
+        compose.onNodeWithContentDescription("对局设置").performClick()
         compose.onNodeWithText("随机").assertIsSelected()
         compose.onNodeWithText("黑方").performClick().assertIsSelected()
     }
