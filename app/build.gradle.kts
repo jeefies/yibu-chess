@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     kotlin("android")
     kotlin("plugin.compose")
+    kotlin("plugin.serialization")
     id("com.google.devtools.ksp")
 }
 // 1.23.2 can execute unsupported SME2 instructions on Xiaomi 17 / Android 16.
@@ -11,16 +12,14 @@ android {
     namespace = "cn.yibu.chess"
     compileSdk = 35
     buildToolsVersion = "35.0.0"
-    ndkVersion = "28.0.13004108"
     defaultConfig {
         applicationId = "cn.yibu.chess"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.7.1"
+        versionCode = 13
+        versionName = "0.8.0"
         buildConfigField("String", "ONNX_RUNTIME_VERSION", "\"$onnxRuntimeVersion\"")
         ndk { abiFilters += "arm64-v8a" }
-        externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -44,7 +43,6 @@ android {
     sourceSets.getByName("test").resources.srcDir("../core/src/test/resources")
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
-    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         // Compress native libraries to keep the full offline APK below GitHub's 100 MiB limit.
@@ -74,10 +72,12 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:$onnxRuntimeVersion")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("com.microsoft.onnxruntime:onnxruntime:$onnxRuntimeVersion")
     testImplementation("androidx.compose.ui:ui-test-junit4")

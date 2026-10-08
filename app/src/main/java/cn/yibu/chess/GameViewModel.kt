@@ -12,7 +12,7 @@ import cn.yibu.chess.data.GameRepository
 import cn.yibu.chess.data.PlayPreferences
 import cn.yibu.chess.diagnostics.RuntimeDiagnostics
 import cn.yibu.chess.engine.MaiaModel
-import cn.yibu.chess.engine.NativeStockfish
+import cn.yibu.chess.engine.RemoteStockfishClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +37,7 @@ data class AppState(
     val busy: Boolean = false,
     val analyzing: Boolean = false,
     val transitioning: Boolean = false,
-    val status: String = "正在校验离线引擎…",
+    val status: String = "正在初始化引擎…",
     val error: String? = null,
     val cursor: Int = 0,
     val variation: List<String> = emptyList(),
@@ -63,14 +63,14 @@ data class AppState(
     val humanTurn: Boolean get() = (game.moves.size % 2 == 0) == game.humanWhite
 }
 
-class GameViewModel(application: Application) : AndroidViewModel(application) {
+class GameViewModel @JvmOverloads constructor(application: Application, remoteClient: RemoteStockfishClient? = null) : AndroidViewModel(application) {
     private val repository = GameRepository(application)
     private val preferences = PlayPreferences(application)
     private val sounds = ChessSounds(application)
-    private val engine = NativeStockfish(application)
+    private val stockfishClient = remoteClient ?: RemoteStockfishClient({ mutable.value.settings.stockfishToken })
     private val maia = MaiaModel(application)
-    private val analyzer = MoveAnalyzer(engine)
-    private val opponent = Opponent(engine)
+    private val analyzer = MoveAnalyzer(stockfishClient)
+    private val opponent = Opponent(stockfishClient)
     private val humanOpponent = HumanOpponent(maia)
     private val mutable = MutableStateFlow(AppState(settings = preferences.read()))
     val state = mutable.asStateFlow()
@@ -93,8 +93,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val game = resumed?.let { HumanOpponent.prepare(it) } ?: EloRules.newGame(profile, settings.mode, settings.color.humanWhite)
                 mutable.update { it.copy(profile = profile, game = game, cursor = game.moves.size) }
                 maia.initialize()
-                engine.initialize()
-                mutable.update { it.copy(ready = true, status = "离线引擎已就绪") }
+                mutable.update { it.copy(ready = true, status = "对弈引擎已就绪") }
                 if (resumed == null) playFeedback(SoundCue.START)
                 if (!mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
             } catch (e: Exception) { mutable.update { it.copy(error = "引擎启动失败：${e.message}", status = "启动失败") } }
@@ -105,7 +104,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         generation++
         work?.cancel()
         liveAnalysis?.cancel()
-        engine.stop()
+        stockfishClient.stop()
         sounds.stop()
         mutable.update { it.copy(busy = false, analyzing = false, explainingPly = null, kingBreak = null) }
         if (saveSnapshot && snapshot.moves.isNotEmpty()) viewModelScope.launch { persist(snapshot) }
@@ -116,14 +115,38 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (mutable.value.page == 0 && mutable.value.kingBreak?.gameId == gameId) playFeedback(SoundCue.SHATTER)
     }
     fun clearError() { mutable.update { it.copy(error = null) } }
+    fun saveSettings(settings: PlaySettings) {
+        if (!mutable.value.ready || mutable.value.transitioning) return
+        val saved = settings.copy(stockfishToken = settings.stockfishToken.trim())
+        if (saved.mode == Difficulty.STRONG && saved.stockfishToken.isBlank()) {
+            mutable.update { it.copy(error = "最强对手需要云端 Access Token；匹配对手可离线对弈") }
+            return
+        }
+        val connectionChanged = saved.stockfishToken != mutable.value.settings.stockfishToken
+        if (connectionChanged) cancelWork()
+        preferences.save(saved)
+        mutable.update { it.copy(settings = saved, error = null, status = "设置已保存，当前棋局继续保留") }
+        if (connectionChanged && mutable.value.page == 0) {
+            if (!mutable.value.game.finished && !mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
+        }
+    }
     fun configureAndStart(settings: PlaySettings) {
         if (!mutable.value.ready || mutable.value.transitioning) return
-        preferences.save(settings)
-        mutable.update { it.copy(settings = settings) }
+        if (settings.mode == Difficulty.STRONG && settings.stockfishToken.isBlank()) {
+            mutable.update { it.copy(error = "最强对手需要云端 Access Token；匹配对手可离线对弈") }
+            return
+        }
+        val saved = settings.copy(stockfishToken = settings.stockfishToken.trim())
+        preferences.save(saved)
+        mutable.update { it.copy(settings = saved) }
         newGame()
     }
     fun newGame(difficulty: Difficulty = mutable.value.settings.mode, humanWhite: Boolean? = mutable.value.settings.color.humanWhite) {
         if (!mutable.value.ready || mutable.value.transitioning || difficulty !in Difficulty.choices) return
+        if (difficulty == Difficulty.STRONG && mutable.value.settings.stockfishToken.isBlank()) {
+            mutable.update { it.copy(error = "最强对手需要云端 Access Token；匹配对手可离线对弈") }
+            return
+        }
         val previous = mutable.value.game
         cancelWork(false)
         mutable.update { it.copy(busy = true, transitioning = true, error = null) }
@@ -203,6 +226,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun scheduleLiveAnalysis() {
         val state = mutable.value
+        if (state.settings.stockfishToken.isBlank()) return
         if (!state.ready || state.busy || state.transitioning || state.page != 0 ||
             (!state.humanTurn && !state.game.finished) || liveAnalysis?.isActive == true) return
         val missing = (1..state.game.moves.size).filter { ply -> state.game.reviews.none { it.ply == ply } }
@@ -229,6 +253,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
     private suspend fun analyzePly(ply: Int, deep: Boolean, token: Int) {
         if (token != generation) return
+        check(mutable.value.settings.stockfishToken.isNotBlank()) { "请在对局设置中填写朋友提供的 Access Token" }
         val game = mutable.value.game
         mutable.update { it.copy(status = if (it.page == 1) {
             if (deep) "深度复评 $ply / ${game.moves.size}" else "正在分析第 ${(ply + 1) / 2} 回合…"
@@ -262,7 +287,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (mutable.value.transitioning) return
         if (page == mutable.value.page) return
         cancelWork()
-        mutable.update { it.copy(page = page, cursor = it.game.moves.size, variation = emptyList(), lessonOpen = false, kingBreak = null, highlightsOpen = false, status = "离线引擎已就绪") }
+        mutable.update { it.copy(page = page, cursor = it.game.moves.size, variation = emptyList(), lessonOpen = false, kingBreak = null, highlightsOpen = false, status = "引擎已就绪") }
         if (page == 0) {
             if (!mutable.value.game.finished && !mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
         }
@@ -306,7 +331,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             variationStep = 0, error = null, status = "深入讲解第 $ply 步…") }
         work = viewModelScope.launch {
             try {
-                if (state.chosenReview?.canReuseDeep(scoringElo(state.game, ply)) != true) analyzePly(ply, true, token)
+                if (state.chosenReview?.canReuseDeep(scoringElo(state.game, ply), stockfishClient.engineName) != true) analyzePly(ply, true, token)
                 currentCoroutineContext().ensureActive()
                 if (token != generation || mutable.value.game.id != gameId) return@launch
                 val game = mutable.value.game
@@ -346,6 +371,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun analyzeSelected() {
         val state = mutable.value
         if (!state.ready || state.busy || state.page != 1 || state.cursor == 0) return
+        if (state.settings.stockfishToken.isBlank()) {
+            mutable.update { it.copy(error = "未配置云端 Access Token，请在对局设置中配置") }
+            return
+        }
         val token = generation
         mutable.update { it.copy(busy = true, error = null) }
         work = viewModelScope.launch {
@@ -367,6 +396,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun reviewGame(guided: Boolean) {
         if (!mutable.value.ready || mutable.value.busy || mutable.value.page != 1 || mutable.value.game.moves.isEmpty()) return
+        val current = mutable.value.game
+        val needsSearch = (1..current.moves.size).any { ply ->
+            current.reviews.find { it.ply == ply }?.canReuseDeep(scoringElo(current, ply), stockfishClient.engineName) != true
+        }
+        if (needsSearch && mutable.value.settings.stockfishToken.isBlank()) {
+            mutable.update { it.copy(error = "未配置云端 Access Token，请在对局设置中配置") }
+            return
+        }
         val token = generation
         mutable.update { it.copy(busy = true, reviewDone = 0, error = null, lessonOpen = false, highlightsOpen = false, variation = emptyList(), status = "正在寻找本局关键点…") }
         work = viewModelScope.launch {
@@ -375,7 +412,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 for (ply in 1..game.moves.size) {
                     currentCoroutineContext().ensureActive()
                     val review = mutable.value.game.reviews.find { it.ply == ply }
-                    if (review?.canReuseDeep(scoringElo(game, ply)) != true) analyzePly(ply, true, token)
+                    if (review?.canReuseDeep(scoringElo(game, ply), stockfishClient.engineName) != true) analyzePly(ply, true, token)
                     mutable.update { it.copy(reviewDone = ply, status = "深度复盘 $ply / ${game.moves.size}") }
                 }
                 currentCoroutineContext().ensureActive()
@@ -478,5 +515,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun resultChinese(game: GameRecord): String = when (game.result) {
         "1-0" -> "白方获胜"; "0-1" -> "黑方获胜"; "1/2-1/2" -> "和棋"; else -> "进行中"
     }
-    override fun onCleared() { work?.cancel(); liveAnalysis?.cancel(); engine.stop(); sounds.release(); super.onCleared() }
+    suspend fun testStockfishConnection(token: String): Result<String> = stockfishClient.checkHealth(token)
+    override fun onCleared() { work?.cancel(); liveAnalysis?.cancel(); stockfishClient.stop(); sounds.release(); super.onCleared() }
 }

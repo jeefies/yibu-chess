@@ -15,7 +15,8 @@ data class Evaluation(
 ) {
     val expected: Double get() = when {
         mate != null -> if (mate > 0) 1.0 else 0.0
-        else -> (win + draw * 0.5) / (win + draw + loss).coerceAtLeast(1)
+        win + draw + loss == 0 -> RatingRules.expectedPoints(this, 500)
+        else -> (win + draw * 0.5) / (win + draw + loss)
     }
     fun display(whitePerspective: Boolean = false, moverWhite: Boolean = true): String {
         val sign = if (whitePerspective && !moverWhite) -1 else 1
@@ -58,8 +59,8 @@ data class MoveReview(
     val pointsLost: Double get() = ((bestExpectedPoints ?: best.expected) - (playedExpectedPoints ?: played.expected)).coerceAtLeast(0.0)
     val bestMove: String get() = best.pv.firstOrNull() ?: uci
     val moverWhite: Boolean get() = ply % 2 == 1
-    fun canReuseDeep(elo: Int): Boolean = algorithmVersion == 3 && scoringElo == elo &&
-        engineVersion == "Stockfish 17.1" && (deeplySearched || !provisional) &&
+    fun canReuseDeep(elo: Int, expectedEngine: String = "Stockfish 17.1"): Boolean = algorithmVersion == 3 && scoringElo == elo &&
+        engineVersion == expectedEngine && (deeplySearched || !provisional) &&
         grade != Grade.UNSTABLE && best.depth >= 12 && best.depth == played.depth
 }
 
@@ -138,4 +139,74 @@ data class SearchResult(val bestMove: String, val snapshots: Map<Int, List<Evalu
 interface ChessEngine {
     suspend fun search(history: List<String>, request: SearchRequest): SearchResult
     fun stop()
+}
+
+data class RemoteEvaluation(
+    val completedDepth: Int,
+    val bestMove: String,
+    val best: Evaluation,
+    val candidates: List<Evaluation> = emptyList(),
+    val engineName: String = "Stockfish 19",
+)
+
+data class RemoteMoveAnalysis(
+    val best: Evaluation,
+    val played: Evaluation,
+    val second: Evaluation? = null,
+    val previousBest: Evaluation? = null,
+    val canCompare: Boolean = true,
+    val commonDepth: Int = 0,
+    val diffCp: Int? = null,
+    val diffWdlLoss: Int? = null,
+    val engineName: String = "Stockfish 19",
+)
+
+interface StockfishService {
+    suspend fun evaluate(history: List<String>, profile: String = "standard", multiPv: Int = 1): RemoteEvaluation
+    suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis
+    fun stop()
+}
+
+class EngineToServiceAdapter(private val engine: ChessEngine) : StockfishService {
+    override suspend fun evaluate(history: List<String>, profile: String, multiPv: Int): RemoteEvaluation {
+        val timeMs = if (profile == "fast") 1500 else 3000
+        val res = engine.search(history, SearchRequest(timeMs = timeMs, multiPv = multiPv, skill = 20, threads = 2, hashMb = 128))
+        return RemoteEvaluation(res.best.depth, res.bestMove, res.best, res.lines, "Stockfish 17.1")
+    }
+
+    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis {
+        val legalSize = ChessRules.legal(history).size
+        val request = SearchRequest(
+            timeMs = if (deep) 6000 else 1500,
+            depth = if (deep) 22 else 18,
+            multiPv = minOf(if (deep) 2 else 3, legalSize),
+            threads = if (deep) 8 else 2,
+            hashMb = if (deep) 512 else 128,
+            reuseSearch = deep
+        )
+        var root = engine.search(history, request)
+        var best = root.best
+        var actual = root.lines.find { it.pv.firstOrNull() == playedMove }
+        if (actual == null) {
+            val forced = engine.search(history, request.copy(depth = best.depth, multiPv = 1, restricted = listOf(playedMove)))
+            var commonDepth = root.snapshots.keys.intersect(forced.snapshots.keys).maxOrNull()
+            if (commonDepth == null) {
+                root = engine.search(history, request.copy(depth = minOf(best.depth, forced.best.depth)))
+                commonDepth = root.snapshots.keys.intersect(forced.snapshots.keys).maxOrNull()
+            }
+            if (commonDepth != null) {
+                best = root.snapshots.getValue(commonDepth).first()
+                actual = forced.snapshots.getValue(commonDepth).first()
+            } else actual = forced.best
+        }
+        val played = requireNotNull(actual)
+        val second = root.snapshots[best.depth]?.getOrNull(1)
+        val previous = root.snapshots.filterKeys { it < best.depth }.maxByOrNull { it.key }?.value?.firstOrNull()
+        val canCompare = best.depth == played.depth
+        val diffCp = if (played.cp != null && best.cp != null) played.cp - best.cp else null
+        val diffWdlLoss = played.loss - best.loss
+        return RemoteMoveAnalysis(best, played, second, previous, canCompare, best.depth, diffCp, diffWdlLoss, "Stockfish 17.1")
+    }
+
+    override fun stop() { engine.stop() }
 }

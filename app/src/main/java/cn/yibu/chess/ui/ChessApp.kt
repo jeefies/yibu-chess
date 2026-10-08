@@ -26,11 +26,15 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.yibu.chess.AppState
 import cn.yibu.chess.BuildConfig
@@ -119,8 +123,8 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                         else if (state.game.rated) "匹配你的棋力，每盘进步一点" else "专注练习 · 本局不计分",
                                         color = Muted, fontSize = 12.sp)
                                 }
-                                if (state.page == 0) IconAction(ChessIcon.SETTINGS, "对局设置", { newDialog = true }, state.ready && !state.transitioning)
-                                else StatusPill(if (!state.game.humanWhite xor flipOverride) "黑方在下" else "白方在下")
+                                IconAction(ChessIcon.SETTINGS, "对局设置", { newDialog = true }, state.ready && !state.transitioning)
+                                if (state.page != 0) StatusPill(if (!state.game.humanWhite xor flipOverride) "黑方在下" else "白方在下")
                             }
                             if (state.page == 1) {
                                 PrimaryAction("全局复盘 · 手动看关键点", model::reviewHighlights, Modifier.fillMaxWidth(),
@@ -220,7 +224,8 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                 }
             }
         }
-        if (newDialog) NewGameDialog(state.settings, state.profile.rating, onDismiss = { newDialog = false }) { settings ->
+        if (newDialog) NewGameDialog(state.settings, state.profile.rating, onTestToken = model::testStockfishConnection,
+            onSave = { settings -> model.saveSettings(settings); newDialog = false }, onDismiss = { newDialog = false }) { settings ->
             model.configureAndStart(settings); newDialog = false
         }
         if (promotion.isNotEmpty()) AlertDialog(onDismissRequest = { promotion = emptyList() }, title = { Text("选择升变棋子") }, text = {
@@ -234,15 +239,15 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
             confirmButton = { TextButton(onClick = feedbackClick { model.resign(); resignDialog = false }) { Text("认输") } }, dismissButton = { TextButton(onClick = feedbackClick { resignDialog = false }) { Text("继续对弈") } })
         if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("关于弈步 · ${BuildConfig.VERSION_NAME}") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("拟人对手：Maia-3 5M\n用人类棋谱训练，按走法概率选择，近期重复开局会适度减权。模型与 Stockfish 17.1 随安装包提供，全程离线。最强对手继续使用 Stockfish。", fontSize = 13.sp)
+                Text("拟人对手：Maia-3 5M\n用人类棋谱训练，按走法概率选择，近期重复开局会适度减权。Maia 模型离线内置。最强挑战对手与深度复盘使用云端 Stockfish 19 服务（需在对局设置中配置 Access Token）。", fontSize = 13.sp)
                 Text("新局默认随机白黑，点击即开始。可在对局设置里主动选择，选择会记住。对弈时只提示经过深度验证的 !!，附上弃子原因和参考变化；完整评级与推荐走法在复盘查看。", fontSize = 13.sp)
                 Text("音效随 APK 离线提供，始终开启并跟随手机媒体音量。落子、吃子、易位、升变、将军、终局、王碎裂、复盘和界面操作均有声音。", fontSize = 13.sp)
                 Text("将杀和认输后，落败方的王会播放碎裂特效。全局复盘会挑选几个关键节点，手动查看实战与推荐思路，点“下一步”继续，可返回逐步复盘。", fontSize = 13.sp)
-                Text("对手落子前默认思考约1–2秒，搜索时间计入等待。复盘点击“讲解这一步”，棋盘与原因、后续思路在同一屏查看，每着参考变化都有说明，通过“上一步”“下一步”手动跟走。深度分析使用最多8线程与512 MiB缓存，复用已有分析与搜索缓存。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
+                Text("对手落子前默认思考约1–2秒，搜索时间计入等待。复盘点击“讲解这一步”，棋盘与原因、后续思路在同一屏查看，每着参考变化都有说明，通过“上一步”“下一步”手动跟走。深度分析使用云端 Stockfish 19 服务。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
                 Text("个人 Elo 从500开始，与 Chess.com 分数独立。匹配局的胜负与和棋按 Elo 公式结算；最强局不计分。前10盘调整较快。删除棋谱不会撤销分数；旧版对局不补计分。", fontSize = 13.sp)
                 Text("采用 Chess.com 公开的预期得分损失阈值：\n最佳：引擎最佳或等值走法\n小于2个百分点：优秀\n2–5：不错 · 5–10：?!\n10–20：? · 20以上：??\n! 是关键好棋，!! 是深入验证的合理弃子。", fontSize = 13.sp)
                 Text("Chess.com 完整算法未公开。这里用引擎分值和棋力估算预期得分。Maia 使用另一套棋谱分数范围，个人 Elo 与模型强度的对应仍是近似值，不能等同平台真人分数。", color = Muted, fontSize = 12.sp)
-                Text("Maia-3 / 弈步：AGPLv3\nStockfish：GPLv3-or-later\nONNX Runtime：MIT · chesslib：Apache-2.0\n完整许可和模型版本记录包含在源码及 APK 内。", fontSize = 12.sp)
+                Text("Maia-3 / 弈步：AGPLv3\n云端 Stockfish：GPLv3-or-later\nONNX Runtime：MIT · chesslib：Apache-2.0\n完整许可和模型版本记录包含在源码及 APK 内。", fontSize = 12.sp)
                 TextButton(onClick = feedbackClick { context.startActivity(model.share(true)) }) { Text("导出对局诊断 JSON") }
                 TextButton(onClick = feedbackClick { context.startActivity(model.shareRuntimeDiagnostics()) }) { Text("导出运行诊断") }
                 TextButton(onClick = feedbackClick { context.startActivity(model.shareLicenses()) }) { Text("查看／导出开源许可证") }
@@ -289,7 +294,7 @@ private fun OpponentRow(state: AppState) {
             Text(if (state.game.mode == Difficulty.STRONG) "全棋力 · 不计 Elo"
                 else "Elo ${state.game.opponentElo ?: 500} · 执${if (state.game.humanWhite) "黑" else "白"}", color = Muted, fontSize = 11.sp)
         }
-        StatusPill(if (!state.ready) "准备中" else if (state.page == 0 && state.busy && !state.humanTurn) "思考中" else "离线", dot = true)
+        StatusPill(if (!state.ready) "准备中" else if (state.page == 0 && state.busy && !state.humanTurn) "思考中" else if (state.game.mode == Difficulty.STRONG) "云端" else "离线", dot = true)
     }
 }
 
@@ -518,30 +523,145 @@ private fun Library(state: AppState, model: GameViewModel) {
 }
 
 @Composable
-private fun NewGameDialog(initial: PlaySettings, rating: Int, onDismiss: () -> Unit, onStart: (PlaySettings) -> Unit) {
-    var difficulty by remember { mutableStateOf(initial.mode) }
-    var color by remember { mutableStateOf(initial.color) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("对局设置") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text("你的个人 Elo：$rating", color = Accent, modifier = Modifier.padding(bottom = 8.dp))
-            Difficulty.choices.forEach { option ->
-                Row(Modifier.fillMaxWidth().clickable(onClick = feedbackClick { difficulty = option }).padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = difficulty == option, onClick = feedbackClick { difficulty = option })
-                    Column {
-                        Text(if (option == Difficulty.MATCHED) "${option.chinese} · $rating" else option.chinese, fontSize = 15.sp)
-                        Text(option.description, fontSize = 11.sp, color = Muted)
+internal fun NewGameDialog(
+    initial: PlaySettings,
+    rating: Int,
+    onTestToken: suspend (String) -> Result<String>,
+    onSave: (PlaySettings) -> Unit,
+    onDismiss: () -> Unit,
+    onStart: (PlaySettings) -> Unit
+) {
+    var settings by remember { mutableStateOf(initial) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("对局设置") },
+        text = { NewGameSettingsEditor(settings, rating, onChange = { settings = it }, onTestToken = onTestToken) },
+        confirmButton = {
+            Button(onClick = feedbackClick { onStart(settings.copy(stockfishToken = settings.stockfishToken.trim())) }) {
+                Text("开始对弈")
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = feedbackClick { onSave(settings.copy(stockfishToken = settings.stockfishToken.trim())) }) {
+                    Text("保存设置")
+                }
+                TextButton(onClick = feedbackClick(onDismiss)) { Text("取消") }
+            }
+        })
+}
+
+@Composable
+internal fun NewGameSettingsEditor(
+    settings: PlaySettings,
+    rating: Int,
+    onChange: (PlaySettings) -> Unit,
+    onTestToken: suspend (String) -> Result<String>
+) {
+    val difficulty = settings.mode
+    val color = settings.color
+    val stockfishToken = settings.stockfishToken
+    val latestToken by rememberUpdatedState(stockfishToken.trim())
+    var tokenVisible by remember { mutableStateOf(false) }
+    var testStatus by remember { mutableStateOf<String?>(null) }
+    var testing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
+    Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+        Text("你的个人 Elo：$rating", color = Accent, modifier = Modifier.padding(bottom = 8.dp))
+        Difficulty.choices.forEach { option ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = feedbackClick { onChange(settings.copy(mode = option)) })
+                    .padding(vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(selected = difficulty == option, onClick = feedbackClick { onChange(settings.copy(mode = option)) })
+                Column {
+                    Text(if (option == Difficulty.MATCHED) "${option.chinese} · $rating" else option.chinese, fontSize = 15.sp)
+                    Text(option.description, fontSize = 11.sp, color = Muted)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("执棋颜色", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ColorPreference.entries.forEach { option ->
+                FilterChip(
+                    selected = color == option,
+                    onClick = feedbackClick { onChange(settings.copy(color = option)) },
+                    modifier = Modifier.weight(1f),
+                    label = { Text(option.chinese, fontSize = 12.sp) }
+                )
+            }
+        }
+        HorizontalDivider(color = Line.copy(alpha = .6f), modifier = Modifier.padding(vertical = 12.dp))
+        Text("云端算力配置 (Stockfish 19)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text("用于复盘分析与最强挑战对手。Maia 拟人对局仍为本地离线运行。", fontSize = 11.sp, color = Muted, modifier = Modifier.padding(bottom = 8.dp))
+        OutlinedTextField(
+            value = stockfishToken,
+            onValueChange = {
+                onChange(settings.copy(stockfishToken = it))
+                testStatus = null
+            },
+            label = { Text("Access Token") },
+            placeholder = { Text("请输入云端访问口令") },
+            singleLine = true,
+            visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        val text = clipboardManager.getText()?.text
+                        if (!text.isNullOrBlank()) {
+                            onChange(settings.copy(stockfishToken = text.trim()))
+                            testStatus = null
+                        }
+                    }) {
+                        Text("粘贴", fontSize = 12.sp)
+                    }
+                    IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                        Text(if (tokenVisible) "隐藏" else "显示", fontSize = 11.sp, color = Muted)
                     }
                 }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(
+                onClick = {
+                    if (stockfishToken.isBlank()) {
+                        testStatus = "请先输入口令"
+                        return@TextButton
+                    }
+                    testing = true
+                    testStatus = "测试中…"
+                    val testedToken = stockfishToken.trim()
+                    scope.launch {
+                        val res = onTestToken(testedToken)
+                        testing = false
+                        if (latestToken == testedToken) testStatus = res.fold(
+                            onSuccess = { "连接成功：$it" },
+                            onFailure = { "连接失败：${it.message}" }
+                        )
+                    }
+                },
+                enabled = !testing
+            ) {
+                Text(if (testing) "测试中…" else "测试连接", fontSize = 12.sp)
             }
-            Spacer(Modifier.height(12.dp))
-            Text("执棋颜色", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ColorPreference.entries.forEach { option ->
-                    FilterChip(selected = color == option, onClick = feedbackClick { color = option }, modifier = Modifier.weight(1f),
-                        label = { Text(option.chinese, fontSize = 12.sp) })
-                }
+            testStatus?.let { status ->
+                Text(
+                    status,
+                    fontSize = 11.sp,
+                    color = if (status.startsWith("连接成功")) Accent else Danger,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Text("选择会记住；随机每盘重新抽取。当前对局会保留在棋谱中。", fontSize = 11.sp, color = Muted, modifier = Modifier.padding(top = 10.dp))
         }
-    }, confirmButton = { Button(onClick = feedbackClick { onStart(PlaySettings(difficulty, color)) }) { Text("开始对弈") } }, dismissButton = { TextButton(onClick = feedbackClick(onDismiss)) { Text("取消") } })
+        Text("选择与口令会保存在本机；当前对局会保留在棋谱中。", fontSize = 11.sp, color = Muted, modifier = Modifier.padding(top = 8.dp))
+    }
 }

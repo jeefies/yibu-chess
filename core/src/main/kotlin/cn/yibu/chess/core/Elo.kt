@@ -26,7 +26,7 @@ object EloRules {
         require(mode in Difficulty.choices)
         return GameRecord(humanWhite = humanWhite ?: random.nextBoolean(), difficulty = mode, rated = mode == Difficulty.MATCHED,
             playerEloAtStart = profile.rating, opponentElo = if (mode == Difficulty.MATCHED) profile.rating else null,
-            opponentEngine = if (mode == Difficulty.MATCHED) "Maia-3 5M" else "Stockfish 17.1",
+            opponentEngine = if (mode == Difficulty.MATCHED) "Maia-3 5M" else "Stockfish 19",
             modelElo = if (mode == Difficulty.MATCHED) HumanSkill.modelElo(profile.rating) else null,
             policySeed = random.nextLong())
     }

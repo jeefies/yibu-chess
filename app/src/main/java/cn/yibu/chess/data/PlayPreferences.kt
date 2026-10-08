@@ -11,10 +11,15 @@ class PlayPreferences(context: Context) {
         val mode = runCatching { Difficulty.valueOf(preferences.getString("mode", "MATCHED")!!) }.getOrNull()
             ?.takeIf { it in Difficulty.choices } ?: Difficulty.MATCHED
         val color = runCatching { ColorPreference.valueOf(preferences.getString("color", "RANDOM")!!) }.getOrDefault(ColorPreference.RANDOM)
-        return PlaySettings(mode, color)
+        val token = preferences.getString("stockfish_token", "") ?: ""
+        return PlaySettings(mode, color, token)
     }
     fun save(settings: PlaySettings) {
         require(settings.mode in Difficulty.choices)
-        preferences.edit().putString("mode", settings.mode.name).putString("color", settings.color.name).apply()
+        preferences.edit()
+            .putString("mode", settings.mode.name)
+            .putString("color", settings.color.name)
+            .putString("stockfish_token", settings.stockfishToken.trim())
+            .apply()
     }
 }
