@@ -1,19 +1,19 @@
-# 弈步 0.6.0 安装包
+# 弈步 0.7.0 安装包
 
-[打开 APK 下载页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.6.0-arm64.apk)
+[打开 APK 下载页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.7.0-arm64.apk)
 
-手机浏览器先登录 GitHub 账号 `well49112`，进入页面后点击 Download raw file 下载。安装包约 84 MiB，支持 Xiaomi 17 Pro 等 arm64 手机，最低 Android 8.0。模型权重包含在 APK 内，运行无需联网。
+手机浏览器先登录 GitHub 账号 `well49112`，进入页面后点击 **Download raw file** 下载。安装包约 84 MiB，支持 Xiaomi 17 Pro 等 arm64 手机，最低 Android 8.0。Stockfish 与 Maia 模型权重包含在 APK 内，运行无需联网。
 
 本版改动：
 
-- 深度复盘使用最多 8 线程、512 MiB Hash，复用搜索缓存及有效的已保存深度结果，避免重复配置引擎。保持目标深度 22、单次最多 6 秒；提速取决于局面和设备。
-- “讲解这一步”在同一界面保留棋盘和说明。原因、后续思路和全文集中展示；长文字只在说明区滚动，棋盘及跟走操作始终可见。
-- 后续每着都有对应棋盘、箭头、移动说明和解释。可以前后跟走、自动演示和暂停；返回复盘保留原实战棋步。旧版已保存讲解直接可用，不重新搜索。
+- 将杀和认输时，落败方的王分成 8 块，弹开、旋转并坠落。将杀先等最后一步落位，再播放特效；系统关闭动画时直接显示结果。特效只在本局结束时触发，打开旧棋谱不会重播。
+- 赛后“关键点复盘”及复盘页“全局复盘”挑选约 3–5 个节点（短局可能更少），按时间自动展示实战与推荐路线，每着附说明。可暂停、切换节点、重播或返回逐步复盘，进入后台自动暂停。
+- 关键点优先精彩弃子、关键好棋、失误与错失将杀；安静阶段标为回顾，未经确认的评级不作为关键结论。有效的深度分析直接复用，说明由引擎变化与棋盘事实生成，无需额外搜索。
 
-同包名、同签名，versionCode 为 10，直接覆盖旧版安装，保留棋谱和个人 Elo。模拟等待仍为 1–2 秒，搜索时间计入等待。
+同包名、同签名，versionCode 为 11，直接覆盖旧版安装，保留棋谱和个人 Elo。单步讲解、深度复评、导出与其他原有功能继续可用，模拟思考仍为 1–2 秒。
 
-仅检查本次改动：12 项相关 JVM / Compose 用例和新增的原生 JNI 缓存与暂停检查通过，签名 release APK 构建完成。未运行全量回归或全量 lint，上传后不重复下载校验。
+仅验证本次相关功能：8 项 JVM／Compose 检查通过，签名 release APK 构建完成。未运行全量回归或全量 lint；上传后直接提供下载页面，不重复下载验证。
 
-[新界面预览](https://github.com/well49112/yibu-chess/blob/v0.6.0/docs/UI-DESIGN.md) · [本版本完整源码与构建说明](https://github.com/well49112/yibu-chess/tree/v0.6.0) · [版本说明](https://github.com/well49112/yibu-chess/releases/tag/v0.6.0)
+[新界面与动画说明](https://github.com/well49112/yibu-chess/blob/v0.7.0/docs/UI-DESIGN.md) · [本版本完整源码与构建说明](https://github.com/well49112/yibu-chess/tree/v0.7.0) · [版本说明](https://github.com/well49112/yibu-chess/releases/tag/v0.7.0)
 
 本分支保留新旧安装包及 SHA-256 文件；签名密钥不在 Git 仓库中。
