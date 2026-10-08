@@ -1,20 +1,15 @@
 === 组件与版本 ===
 # 开源组件与版本
 
-弈步 0.7.1 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
+弈步 0.8.0 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、Maia 模型原始检查点、转换脚本和离线权重与本版本一同交付。
 
-## Stockfish
+## Stockfish（远端服务）
 
 - 上游：https://github.com/official-stockfish/Stockfish
-- 版本：17.1，标签 sf_17.1
-- 提交：03e27488f3d21d8ff4dbf3065603afa21dbd0ef3
+- 客户端对接版本：19；实际版本以服务响应的 engine.name / engine.version 为准。
 - 许可证：GPL-3.0-or-later，全文见 vendor/stockfish/Copying.txt。
-- vendor/stockfish 保留完整上游源码。应用自有 JNI 包装在 app/src/main/cpp/bridge.cpp。
-- NNUE 不编译进 .so，由 assets/networks 打包并复制到应用私有目录；native 使用 NNUE_EMBEDDING_OFF。
-- 本地权重：nn-1c0000000000.nnue、nn-37f18f62d772.nnue，从官方 Fishtest 下载。
-- SHA-256：
-  - 1c0000000000a67d629999d932d0c373f7450ce43cd12d0562868f4eaf9ae2ad
-  - 37f18f62d772f3107e1d6aaca3898c130c3c86f2ab63e6555fbbca20635a899d
+- 0.8.0 APK 不包含本地 Stockfish 二进制、JNI 桥接或 NNUE。服务器由朋友单独部署，客户端通过 HTTP 请求分析。
+- vendor/stockfish 保留旧版 17.1 的历史源码（03e27488f3d21d8ff4dbf3065603afa21dbd0ef3），不是远端 19 的实现来源。
 
 ## chesslib
 
@@ -47,10 +42,20 @@
 - AndroidX Compose / Activity / Lifecycle / Room：Apache-2.0
 - Apache Commons Lang 3.18.0：Apache-2.0
 - Kotlin / kotlinx.coroutines / kotlinx.serialization：Apache-2.0
+- OkHttp 4.12.0 / Okio 3.6.0：Apache-2.0，完整许可同附带的 Apache-2.0 文本。
 - Gradle Wrapper：Apache-2.0
-- 原生 C++ 标准库：Android NDK libc++，Apache-2.0 WITH LLVM-exception。
 
 精确版本由 Gradle 文件固定。测试签名文件、构建缓存和本机 SDK 不属于源码包。
+
+## 开发用设计技能
+
+- 上游：https://github.com/emilkowalski/skills
+- 提交：e8a175de22ae1e49370fc144c1f3bb9aeedf988d
+- 安装位置：.agents/skills，包含上游技能与参考文件。
+- 许可证：MIT，全文见 .agents/skills/LICENSE-emilkowalski。
+- 本次界面使用 emil-design-eng 原则，图标为应用自有 Compose / Android 矢量绘制；技能文件不作为运行时依赖打包到 APK。
+
+本版 19 类音效由本项目 tools/generate-sounds.py 原创合成，无外部采样，随应用采用 AGPL-3.0。音频生成说明见 app/src/main/assets/licenses/ORIGINAL_SOUNDS.txt。
 
 
 === 弈步 / Maia-3 AGPL-3.0 ===

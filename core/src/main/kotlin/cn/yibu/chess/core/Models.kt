@@ -15,7 +15,8 @@ data class Evaluation(
 ) {
     val expected: Double get() = when {
         mate != null -> if (mate > 0) 1.0 else 0.0
-        else -> (win + draw * 0.5) / (win + draw + loss).coerceAtLeast(1)
+        win + draw + loss == 0 -> RatingRules.expectedPoints(this, 500)
+        else -> (win + draw * 0.5) / (win + draw + loss)
     }
     fun display(whitePerspective: Boolean = false, moverWhite: Boolean = true): String {
         val sign = if (whitePerspective && !moverWhite) -1 else 1
@@ -58,8 +59,8 @@ data class MoveReview(
     val pointsLost: Double get() = ((bestExpectedPoints ?: best.expected) - (playedExpectedPoints ?: played.expected)).coerceAtLeast(0.0)
     val bestMove: String get() = best.pv.firstOrNull() ?: uci
     val moverWhite: Boolean get() = ply % 2 == 1
-    fun canReuseDeep(elo: Int): Boolean = algorithmVersion == 3 && scoringElo == elo &&
-        engineVersion.startsWith("Stockfish") && (deeplySearched || !provisional) &&
+    fun canReuseDeep(elo: Int, expectedEngine: String = "Stockfish 17.1"): Boolean = algorithmVersion == 3 && scoringElo == elo &&
+        engineVersion == expectedEngine && (deeplySearched || !provisional) &&
         grade != Grade.UNSTABLE && best.depth >= 12 && best.depth == played.depth
 }
 

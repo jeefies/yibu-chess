@@ -46,7 +46,7 @@ class MoveAnalyzer(private val service: StockfishService) {
         val loss = (bestPoints - playedPoints).coerceAtLeast(0.0)
         val second = analysis.second
         val nearThreshold = listOf(0.02, 0.05, 0.10, 0.20).any { abs(loss - it) < 0.006 }
-        val stable = (analysis.canCompare || sameDepth) && !negative
+        val stable = analysis.canCompare && sameDepth && analysis.commonDepth == best.depth && !negative
         val tied = best.mate == played.mate && best.cp == played.cp && abs(bestPoints - playedPoints) < 1e-9
         var grade = RatingRules.ordinary(loss, best.pv.firstOrNull() == uci || tied)
         if (!stable) grade = Grade.UNSTABLE

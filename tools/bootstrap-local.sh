@@ -27,4 +27,4 @@ fi
 set +o pipefail
 yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses > "$TASK_ROOT/licenses.log" 2>&1
 set -o pipefail
-sdkmanager --sdk_root="$ANDROID_HOME" --install 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+sdkmanager --sdk_root="$ANDROID_HOME" --install 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'

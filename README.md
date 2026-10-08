@@ -1,11 +1,11 @@
-# 弈步：中文离线国际象棋 Android App
+# 弈步：中文国际象棋 Android App
 
 为个人手机练习制作，优先针对 Xiaomi 17 Pro 等 arm64-v8a 手机。
 
 ## 功能
 
-- 匹配对手使用 Maia-3 5M 人类棋谱模型；Stockfish 17.1 用于分析与最强对手。两个模型的权重均包含在 APK 中，首次启动无需联网。
-- 两个对手：匹配我的 Elo、最强。“新局”直接开始，默认随机白黑；主动打开“对局设置”可选择执棋颜色，选择会记住。最强使用全棋力、双线程、约 3 秒/步。
+- 匹配对手使用 APK 内置的 Maia-3 5M 人类棋谱模型，支持离线对弈；Stockfish 19 通过朋友的远端服务提供分析与最强对手，需要联网并填写 Access Token。
+- 两个对手：匹配我的 Elo、最强。“新局”直接开始，默认随机白黑；主动打开“对局设置”可选择执棋颜色，选择会记住。最强使用远端全棋力搜索，没有口令时明确提示配置。
 - 个人练习 Elo 从 500 起步，匹配局结束后按胜负或和棋结算；最强局不计分。新匹配局的对手分数等于开局时的个人分数。
 - 棋谱支持删除，删除不撤销已经结算的 Elo；后台分析不能重新保存已删除的棋谱。
 - 点击棋子，再点击合法落点；支持王车易位、吃过路兵及后/车/象/马升变。落子使用 250ms 原生图层平移与吃子淡出，快速复盘可从当前位置转向，系统关闭动画时立即落位。
@@ -14,10 +14,10 @@
 - 19 类原创音效随 APK 离线提供：落子、吃子（含吃过路兵）、易位、升变、将军、将杀、认输、王碎裂、胜负、和棋、开局、!!、选择、无效落点、复盘、完成、删除与错误反馈。始终开启，音量跟随手机媒体音量；切页／新局／后台取消待播放声音。
 - 对弈界面隐藏普通评级、分值与最佳走法。仅对双方经深度验证的 !! 显示弃子原因和后续参考变化；提示保留到玩家下一次落子。
 - Stockfish 在后台保存逐步分析，对弃子候选自动追加深入验证。完整评级、最佳走法和曲线在复盘查看。
-- 复盘：逐步导航、局势曲线、完整走棋列表、推荐/实战变化跟走、单步/整盘深度复评。深度分析使用最多 8 线程、512 MiB Hash，保留搜索缓存并复用有效深度结果。每一步可点击“讲解这一步”，进入同屏棋盘与说明：原因、后续每着注释、全文、前后手动步进；棋盘和操作固定可见，讲解缓存到棋谱。
+- 复盘：逐步导航、局势曲线、完整走棋列表、推荐/实战变化跟走、单步/整盘深度复评。Stockfish 搜索在服务器完成，手机只比较同深度且服务端认可的结果，缓存按引擎版本和评分棋力复用。每一步可点击“讲解这一步”，进入同屏棋盘与说明：原因、后续每着注释、全文、前后手动步进；棋盘和操作固定可见，讲解缓存到棋谱。
 - Room 自动保存对局和分析。切到后台停止当前计算，回前台可继续机器人回合；整盘分析按步保存。
 - 标准将杀/逼和、保守死局子力判断、五次重复/75 回合自动和棋；三次重复/50 回合允许申请和棋。
-- 导出 PGN、包含完整分析的 JSON、运行诊断与开源许可证；应用无 INTERNET 权限。
+- 导出 PGN、包含完整分析的 JSON、运行诊断与开源许可证；应用使用 INTERNET 权限访问远端 Stockfish，Token 仅保存在本机设置中。
 
 Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。每盘独立随机种子、轻微温度变化（0.95–1.05）与累计概率 97% 的候选池提供变化；前 12 个半回合对最近 12 盘相同局面的 AI 重复走法适度减权（不会把玩家走法算作 AI 重复，也不会凭空加入低概率走法）。同一棋局恢复后保留种子。合理应对少或仅一着合法棋时仍可能重复，不能保证每局都不同。
 
@@ -25,14 +25,14 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 ## 在手机上安装
 
-[下载 ARM64 APK（约 10 MiB）](https://github.com/jeefies/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.8.0-arm64.apk) · [打开安装包页面](https://github.com/jeefies/yibu-chess/blob/apk-downloads/yibu-0.8.0-arm64.apk)
+[下载 ARM64 APK（约 10 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.8.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.8.0-arm64.apk)
 
 安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
 
 1. 下载 `yibu-0.8.0-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
-2. 首次打开后，请在右上角“对局设置”中填入云端 Stockfish 的 Access Token，并可点击“测试连接”验证。
+2. 需要远端分析时，在“对局设置”中填入朋友提供的 Access Token，可点击“测试连接”，再点“保存设置”保留当前棋局。
 3. 对弈依然包含本地离线 Maia-3 模型（支持断网对局）；深度复盘、单步讲解与云端最强引擎使用远端 Stockfish API 服务。
-4. 移除本地 NNUE 权重与 C++ 引擎桥接后，安装包体积由 84 MiB 大幅缩减至约 10 MiB，手机发热与耗电显著下降。
+4. 移除本地 NNUE 权重与 C++ 引擎桥接后，安装包体积由 84 MiB 缩减至约 10 MiB，手机不再执行 Stockfish 搜索。
 
 最低 Android 8.0 (API 26)，目标 SDK 35，首版打包 arm64。
 
@@ -40,7 +40,10 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 - 将原本地 Stockfish 17.1 C++ 引擎及庞大的 NNUE 神经网络（~78MB）完全剔除，替换为远端高性能 Stockfish 19 云端 API 服务。
 - 支持在“对局设置”中输入、粘贴、切换密码可见性并一键测试云端 Access Token，本地安全持久化。
-- 安装包体积骤降至约 10 MiB，对局流畅度与设备续航大幅提升；本地 Maia-3 模型保留以继续提供离线人类棋谱风格对弈。
+- 安装包移除本地 Stockfish 与 NNUE，本地 Maia-3 模型保留，继续提供离线人类棋谱风格对弈。
+- 修正缺少实战评价时复制最佳评价、忽略服务端不可比较标记、复用不同引擎版本分析的问题；非法 PV 与无分值结果返回明确错误。
+- 口令可单独保存，设置入口也可从逐步复盘打开。缺少口令时不会把最强对手换成 Maia。
+- 沿用原个人签名；Actions 保持手动构建，缺少原签名 Secret 时停止。接口和联调范围见 [远端接入说明](docs/REMOTE-STOCKFISH-INTEGRATION.md)。
 
 ## 0.7.1 手动复盘与完整离线音效
 
@@ -108,7 +111,7 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 ## Cloud 构建
 
-固定工具链：JDK 17.0.20.1、Gradle 8.9、AGP 8.7.3、Kotlin 2.0.21、Android SDK 35 / Build Tools 35.0.0、NDK 28.0.13004108、CMake 3.22.1。
+固定工具链：JDK 17.0.20.1、Gradle 8.9、AGP 8.7.3、Kotlin 2.0.21、Android SDK 35 / Build Tools 35.0.0。0.8.0 不再编译本地 Stockfish，无需安装 NDK / CMake。
 
 在 Linux x86_64 Cloud 中：
 
@@ -116,14 +119,14 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 chmod +x gradlew tools/*.sh
 tools/setup-cloud.sh
 # 将过滤器换成本次修改相关的测试；不运行全量回归。
-tools/with-env.sh ./gradlew :core:test --tests 'cn.yibu.chess.core.AnalysisPerformanceTest' --tests 'cn.yibu.chess.core.LessonPlaybackTest' :app:assembleRelease
+tools/with-env.sh ./gradlew :core:test --tests 'cn.yibu.chess.core.RemoteAnalysisTest' :app:assembleRelease
 ```
 
 默认安装在 `/workspace/android-toolchain`，可用 `ANDROID_TOOLCHAIN_DIR` 指定其他目录。初始化脚本重复运行会复用已校验文件。JDK/Gradle/命令行工具下载均锁定 SHA-256。
 
 `tools/with-env.sh` 为每次命令配置 JDK、SDK 和 Gradle 缓存路径，并从已有 HTTP/HTTPS 代理设置 Java 代理。保留平台的 CA 信任；脚本不会关闭 TLS 校验或绕过网络策略。使用自有 JDK/SDK 时可传入 `JAVA_HOME` 和 `ANDROID_HOME`。
 
-Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推荐始终经过 `tools/with-env.sh`，或在环境设置中配置变量。初始化阶段需要下载 SDK、NDK；构建依赖需要访问 Google Maven、Maven Central、Gradle 插件仓库及其下载重定向。构建离线与应用运行离线是两回事。
+Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推荐始终经过 `tools/with-env.sh`，或在环境设置中配置变量。初始化阶段需要下载 SDK；构建依赖需要访问 Google Maven、Maven Central、Gradle 插件仓库及其下载重定向。构建离线与应用运行离线是两回事。
 
 产物：`app/build/outputs/apk/release/app-release.apk`。
 
@@ -131,9 +134,9 @@ Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推�
 
 附带的 `.github/workflows/android.yml` 支持手动构建 APK。先配置下文的签名 Secret，再到 Actions → Android APK → Run workflow 启动；可填写与本次改动相关的 core / Android 测试过滤器，留空则只构建，避免默认执行全量测试。每次构建会保存可下载产物。源码推送不会自动触发尚未配置签名的构建。
 
-0.6.0 的原生缓存及暂停检查可运行 `tools/with-env.sh python3 tools/test-native.py --review-performance`，只执行此次更改涉及的检查。宿主 JNI 编译后将 `artifacts/native-probe/libyibu_stockfish_host.so` 复制为同目录下的 `libyibu_stockfish.so`，相关 ViewModel / Compose 用例通过 `-PstartupNativeDir=/workspace/chess-coach/artifacts/native-probe` 使用该库；其余 UI 用例无需引擎。
+0.8.0 可用 `tools/test-startup.sh` 检查离线 Maia、配置保存及远端请求取消；`RemoteStockfishClientTest` 使用本地模拟 HTTP 服务，不需要真实口令。旧版 JNI 检查不适用于本版。
 
-打包时用 `--test-report` 逐个显式传入本次运行的 JUnit XML 报告，例如 `python3 tools/package-artifacts.py --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.AnalysisPerformanceTest.xml --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.LessonPlaybackTest.xml`。构建清单只记录传入报告中的用例，不会把旧版全量测试或 lint 结果当成本版验证。
+打包时用 `--test-report` 逐个显式传入本次运行的 JUnit XML 报告，例如 `python3 tools/package-artifacts.py --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.RemoteAnalysisTest.xml --test-report app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.engine.RemoteStockfishClientTest.xml`。构建清单只记录传入报告中的用例，不会把旧版全量测试或 lint 结果当成本版验证。
 
 ## Maia 模型与复现
 
