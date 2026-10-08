@@ -46,10 +46,12 @@ data class AppState(
     val settings: PlaySettings = PlaySettings(),
     val brilliantNotices: List<MoveReview> = emptyList(),
     val explainingPly: Int? = null,
+    val lessonOpen: Boolean = false,
 ) {
     val boardHistory: List<String> get() = when {
         page != 1 -> game.moves
         variation.isNotEmpty() -> game.moves.take(variationBase) + variation.take(variationStep)
+        lessonOpen -> game.moves.take((cursor - 1).coerceAtLeast(0))
         else -> game.moves.take(cursor)
     }
     val chosenReview: MoveReview? get() = game.reviews.find { it.ply == if (page == 1) cursor else game.moves.size }
@@ -118,7 +120,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (previous.moves.isNotEmpty() || previous.finished) persist(previous)
                 val profile = repository.profile()
                 val game = EloRules.newGame(profile, difficulty, humanWhite)
-                mutable.update { it.copy(profile = profile, game = game, page = 0, cursor = 0, variation = emptyList(),
+                mutable.update { it.copy(profile = profile, game = game, page = 0, cursor = 0, variation = emptyList(), lessonOpen = false,
                     reviewDone = 0, brilliantNotices = emptyList(), status = "新对局已开始") }
                 persist(game)
                 mutable.update { it.copy(busy = false, transitioning = false) }
@@ -216,9 +218,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(status = if (it.page == 1) {
             if (deep) "深度复评 $ply / ${game.moves.size}" else "正在分析第 ${(ply + 1) / 2} 回合…"
         } else "后台分析第 $ply 步${if (game.finished) "" else " · 可继续走棋"}") }
-        val humanMove = (ply % 2 == 1) == game.humanWhite
-        val scoringElo = if (humanMove) game.playerEloAtStart ?: mutable.value.profile.rating
-            else game.opponentElo ?: if (game.mode == Difficulty.STRONG) 2800 else 500
+        val scoringElo = scoringElo(game, ply)
         val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
         currentCoroutineContext().ensureActive()
         if (token != generation || game.id != mutable.value.game.id) return
@@ -236,11 +236,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (sacrifice) analyzePly(ply, true, token)
         }
     }
+    private fun scoringElo(game: GameRecord, ply: Int): Int =
+        if ((ply % 2 == 1) == game.humanWhite) game.playerEloAtStart ?: mutable.value.profile.rating
+        else game.opponentElo ?: if (game.mode == Difficulty.STRONG) 2800 else 500
+
     fun page(page: Int) {
         if (mutable.value.transitioning) return
         if (page == mutable.value.page) return
         cancelWork()
-        mutable.update { it.copy(page = page, cursor = it.game.moves.size, variation = emptyList(), status = "离线引擎已就绪") }
+        mutable.update { it.copy(page = page, cursor = it.game.moves.size, variation = emptyList(), lessonOpen = false, status = "离线引擎已就绪") }
         if (page == 0) {
             if (!mutable.value.game.finished && !mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
         }
@@ -248,13 +252,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun load(game: GameRecord) {
         if (mutable.value.transitioning) return
         cancelWork()
-        mutable.update { it.copy(game = HumanOpponent.prepare(game), page = 1, cursor = game.moves.size, variation = emptyList(), brilliantNotices = emptyList(), error = null) }
+        mutable.update { it.copy(game = HumanOpponent.prepare(game), page = 1, cursor = game.moves.size, variation = emptyList(), lessonOpen = false, brilliantNotices = emptyList(), error = null) }
     }
-    fun cursor(ply: Int) { mutable.update { it.copy(cursor = ply.coerceIn(0, it.game.moves.size), variation = emptyList()) } }
+    fun cursor(ply: Int) { mutable.update { it.copy(cursor = ply.coerceIn(0, it.game.moves.size), variation = emptyList(), lessonOpen = false) } }
     fun step(delta: Int) {
         val state = mutable.value
         if (state.variation.isNotEmpty()) mutable.update { it.copy(variationStep = (it.variationStep + delta).coerceIn(0, it.variation.size)) }
-        else cursor(state.cursor + delta)
+        else if (!state.lessonOpen) cursor(state.cursor + delta)
     }
     fun showVariation(best: Boolean) {
         val state = mutable.value
@@ -267,14 +271,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun retry() { if (mutable.value.page == 0) advance() else analyzeSelected() }
     fun explainSelected() {
         val state = mutable.value
-        if (!state.ready || state.busy || state.page != 1 || state.cursor == 0 || state.chosenLesson != null) return
+        if (state.page != 1 || state.cursor == 0) return
+        if (state.chosenLesson != null) { showLessonVariation(); return }
+        if (!state.ready || state.busy) return
         val token = generation
         val ply = state.cursor
         val gameId = state.game.id
-        mutable.update { it.copy(busy = true, explainingPly = ply, error = null, status = "深入讲解第 $ply 步…") }
+        mutable.update { it.copy(busy = true, explainingPly = ply, lessonOpen = true, variation = emptyList(),
+            variationStep = 0, error = null, status = "深入讲解第 $ply 步…") }
         work = viewModelScope.launch {
             try {
-                analyzePly(ply, true, token)
+                if (state.chosenReview?.canReuseDeep(scoringElo(state.game, ply)) != true) analyzePly(ply, true, token)
                 currentCoroutineContext().ensureActive()
                 if (token != generation || mutable.value.game.id != gameId) return@launch
                 val game = mutable.value.game
@@ -282,7 +289,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val lesson = withContext(Dispatchers.Default) { MoveCoach.explain(game.moves.take(ply - 1), review) }
                 currentCoroutineContext().ensureActive()
                 if (token != generation || mutable.value.game.id != gameId) return@launch
-                mutable.update { it.copy(game = it.game.copy(lessons = (it.game.lessons.filterNot { note -> note.ply == ply } + lesson).sortedBy { note -> note.ply })) }
+                mutable.update {
+                    val open = it.lessonOpen && it.page == 1 && it.cursor == ply
+                    it.copy(game = it.game.copy(lessons = (it.game.lessons.filterNot { note -> note.ply == ply } + lesson).sortedBy { note -> note.ply }),
+                        variation = if (open) lesson.variation else it.variation,
+                        variationBase = if (open) ply - 1 else it.variationBase,
+                        variationStep = if (open) 0 else it.variationStep)
+                }
                 persist(mutable.value.game)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (token == generation) mutable.update { it.copy(error = "本步讲解失败：${e.message}，可再次点击讲解。") } }
@@ -295,7 +308,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val lesson = state.chosenLesson ?: return
         val base = lesson.ply - 1
         val safe = ChessRules.legalVariation(state.game.moves.take(base), lesson.variation)
-        mutable.update { it.copy(variation = safe, variationBase = base, variationStep = 0) }
+        mutable.update { it.copy(lessonOpen = true, variation = safe, variationBase = base, variationStep = 0) }
+    }
+    fun closeLesson() { mutable.update { it.copy(lessonOpen = false, variation = emptyList(), variationStep = 0) } }
+    fun lessonSeek(step: Int) {
+        if (!mutable.value.lessonOpen) return
+        mutable.update { it.copy(variationStep = step.coerceIn(0, it.variation.size)) }
     }
     fun analyzeSelected() {
         val state = mutable.value
@@ -318,8 +336,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val game = mutable.value.game
                 for (ply in 1..game.moves.size) {
                     currentCoroutineContext().ensureActive()
-                    val review = game.reviews.find { it.ply == ply }
-                    if (review == null || review.provisional || review.algorithmVersion < 3) analyzePly(ply, true, token)
+                    val review = mutable.value.game.reviews.find { it.ply == ply }
+                    if (review?.canReuseDeep(scoringElo(game, ply)) != true) analyzePly(ply, true, token)
                     mutable.update { it.copy(reviewDone = ply) }
                 }
             } catch (e: CancellationException) { throw e }
@@ -356,7 +374,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 persistence.withLock { repository.delete(game.id) }
                 mutable.update { state ->
                     if (state.game.id == game.id) state.copy(game = EloRules.newGame(state.profile, state.settings.mode, state.settings.color.humanWhite),
-                        page = 2, cursor = 0, variation = emptyList(), busy = false, reviewDone = 0,
+                        page = 2, cursor = 0, variation = emptyList(), lessonOpen = false, busy = false, reviewDone = 0,
                         brilliantNotices = emptyList(), transitioning = false, status = "棋谱已删除")
                     else state.copy(transitioning = false)
                 }

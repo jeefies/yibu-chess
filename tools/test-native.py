@@ -3,6 +3,11 @@
 import os
 from pathlib import Path
 import subprocess
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--review-performance", action="store_true", help="Run only the changed review-resource/cache checks")
+args = parser.parse_args()
 
 root = Path(__file__).resolve().parent.parent
 sf = root / "vendor/stockfish/src"
@@ -17,4 +22,5 @@ subprocess.run(["g++", "-O2", "-std=c++17", "-pthread", "-fPIC", "-shared",
     str(root / "app/src/main/cpp/bridge.cpp"), *map(str, sources), "-o", str(lib)], check=True)
 subprocess.run([str(jdk / "bin/javac"), "-d", str(out), str(root / "tools/native-probe/NativeBridge.java")], check=True)
 subprocess.run([str(jdk / "bin/java"), f"-Dprobe.library={lib}", "-cp", str(out),
-    "cn.yibu.chess.engine.NativeBridge", str(root / "app/src/main/assets/networks")], check=True)
+    "cn.yibu.chess.engine.NativeBridge", str(root / "app/src/main/assets/networks"),
+    *(["--review-performance"] if args.review_performance else [])], check=True)

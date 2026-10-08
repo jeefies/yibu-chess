@@ -15,6 +15,9 @@ namespace {
 std::unique_ptr<Stockfish::Engine> owned;
 std::atomic<Stockfish::Engine*> active{nullptr};
 std::mutex access;
+std::map<std::string, std::string> appliedOptions;
+std::atomic<bool> resetRequested{true};
+std::atomic<unsigned long long> cancellationEpoch{0};
 std::string utf(JNIEnv* env, jstring value) {
     if (!value) return "";
     const char* chars = env->GetStringUTFChars(value, nullptr);
@@ -23,8 +26,12 @@ std::string utf(JNIEnv* env, jstring value) {
     return result;
 }
 void option(const std::string& name, const std::string& value) {
+    // Stockfish invokes resize callbacks even when a value has not changed.
+    const auto previous = appliedOptions.find(name);
+    if (previous != appliedOptions.end() && previous->second == value) return;
     std::istringstream input("name " + name + " value " + value);
     owned->get_options().setoption(input);
+    appliedOptions[name] = value;
 }
 std::vector<std::string> words(const std::string& text) {
     std::vector<std::string> result;
@@ -45,6 +52,7 @@ Java_cn_yibu_chess_engine_NativeBridge_initialize(JNIEnv* env, jclass, jstring d
         Stockfish::Bitboards::init();
         Stockfish::Position::init();
         const auto dir = utf(env, directory);
+        appliedOptions.clear();
         owned = std::make_unique<Stockfish::Engine>(dir + "/stockfish");
         option("EvalFile", dir + "/nn-1c0000000000.nnue");
         option("EvalFileSmall", dir + "/nn-37f18f62d772.nnue");
@@ -52,22 +60,26 @@ Java_cn_yibu_chess_engine_NativeBridge_initialize(JNIEnv* env, jclass, jstring d
         option("UCI_ShowWDL", "true");
         option("UCI_LimitStrength", "false");
         active.store(owned.get());
-    } catch (const std::exception& e) { owned.reset(); fail(env, e); }
+    } catch (const std::exception& e) { owned.reset(); appliedOptions.clear(); fail(env, e); }
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_cn_yibu_chess_engine_NativeBridge_search(JNIEnv* env, jclass, jstring history,
-        jint timeMs, jint depth, jint multiPV, jint skill, jint threads, jint hash, jstring restricted) {
+        jint timeMs, jint depth, jint multiPV, jint skill, jint threads, jint hash, jstring restricted, jboolean reuseSearch) {
     std::lock_guard<std::mutex> lock(access);
     try {
         if (!owned) throw std::runtime_error("Stockfish 尚未初始化");
+        const auto epoch = cancellationEpoch.load();
         option("Threads", std::to_string(threads));
         option("Hash", std::to_string(hash));
         option("MultiPV", std::to_string(multiPV));
         option("Skill Level", std::to_string(skill));
         option("UCI_LimitStrength", "false");
-        owned->search_clear();
+        const bool shouldReset = resetRequested.exchange(false);
+        if (!reuseSearch || shouldReset) owned->search_clear();
         owned->set_position("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", words(utf(env, history)));
+        // A stop during thread/hash setup must not be lost when go() resets its stop flag.
+        if (epoch != cancellationEpoch.load()) return env->NewStringUTF("bestmove 0000\n");
         std::map<int, std::map<int, std::string>> snapshots;
         std::string best;
         owned->set_on_update_full([&](const auto& info) {
@@ -86,6 +98,7 @@ Java_cn_yibu_chess_engine_NativeBridge_search(JNIEnv* env, jclass, jstring histo
         if (depth > 0) limits.depth = depth;
         limits.searchmoves = words(utf(env, restricted));
         owned->go(limits);
+        if (epoch != cancellationEpoch.load()) owned->stop();
         owned->wait_for_search_finished();
         std::ostringstream output;
         for (const auto& [d, rows] : snapshots)
@@ -100,5 +113,7 @@ Java_cn_yibu_chess_engine_NativeBridge_search(JNIEnv* env, jclass, jstring histo
 
 extern "C" JNIEXPORT void JNICALL
 Java_cn_yibu_chess_engine_NativeBridge_stop(JNIEnv*, jclass) {
+    cancellationEpoch.fetch_add(1);
+    resetRequested.store(true);
     if (auto* engine = active.load()) engine->stop();
 }

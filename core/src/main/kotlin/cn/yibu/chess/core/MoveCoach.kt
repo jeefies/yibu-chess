@@ -27,26 +27,32 @@ object MoveCoach {
             append("。\n").append(scoreNote)
             if (line.first() != review.uci) append("\n实战走的是 ${review.san}，可跟走下方变化，比较两种走法后的局面。")
         }
+        val steps = annotatedSteps(history, line)
         val plan = buildString {
-            val branch = line.take(6)
-            branch.forEachIndexed { index, uci ->
-                val root = history + line.take(index)
-                val side = if (root.size % 2 == 0) "白方" else "黑方"
-                val label = when (index) {
-                    0 -> "先手计划"
-                    1 -> "对手关键应对"
-                    else -> if (index % 2 == 0) "继续思路" else "对手防守"
-                }
-                val note = facts(root, uci).take(2).joinToString("；").ifEmpty { "调整站位，衔接下一步变化" }
-                append("${index + 1}. $label：$side ${ChessRules.san(root, uci)}（${action(root, uci)}）。$note。\n")
+            steps.forEachIndexed { index, step ->
+                append("${index + 1}. ${step.title}。${step.explanation}\n")
             }
-            val ending = ChessRules.outcome(history + branch)
+            val ending = ChessRules.outcome(history + line)
             if (ending != null) append("这条变化到此${ending.second}。\n")
             else if (line.size == 1) append("本次搜索没有给出更长的可靠变化，暂不推测对手的下一着。\n")
             append("这是引擎主变化的参考路线。对手若改走，先重新检查将军、吃子与直接威胁，不能机械照走。")
         }
-        return MoveLesson(review.ply, line.first(), why, plan, line, review.best.depth)
+        return MoveLesson(review.ply, line.first(), why, plan, line, review.best.depth, algorithmVersion = 2, steps = steps)
     }
+
+    /** Old saved lessons get annotations locally, without repeating an engine search. */
+    fun annotatedSteps(history: List<String>, line: List<String>): List<LessonStep> =
+        ChessRules.legalVariation(history, line).mapIndexed { index, uci ->
+            val root = history + line.take(index)
+            val side = if (root.size % 2 == 0) "白方" else "黑方"
+            val label = when (index) {
+                0 -> "先手计划"
+                1 -> "对手关键应对"
+                else -> if (index % 2 == 0) "继续思路" else "对手防守"
+            }
+            val note = facts(root, uci).take(2).joinToString("；").ifEmpty { "调整站位，衔接下一步变化" }
+            LessonStep(uci, "$label：$side ${ChessRules.san(root, uci)}（${action(root, uci)}）", "$note。")
+        }
 
     private fun action(history: List<String>, uci: String): String {
         val board = ChessRules.board(history)

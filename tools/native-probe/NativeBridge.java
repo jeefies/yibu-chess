@@ -3,7 +3,10 @@ package cn.yibu.chess.engine;
 public final class NativeBridge {
     static { System.load(System.getProperty("probe.library")); }
     public static native void initialize(String directory);
-    public static native String search(String history, int ms, int depth, int multiPv, int skill, int threads, int hash, String restricted);
+    public static native String search(String history, int ms, int depth, int multiPv, int skill, int threads, int hash, String restricted, boolean reuseSearch);
+    private static String search(String history, int ms, int depth, int multiPv, int skill, int threads, int hash, String restricted) {
+        return search(history, ms, depth, multiPv, skill, threads, hash, restricted, false);
+    }
     public static native void stop();
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -11,13 +14,27 @@ public final class NativeBridge {
     public static void main(String[] args) throws Exception {
         initialize(args[0]);
         if (args.length > 1 && args[1].equals("--review-performance")) {
-            String root = search("", 750, 12, 3, 20, 6, 256, "");
-            check(root.contains("multipv 3") && root.contains("wdl "), "six-thread review failed");
-            String forced = search("", 400, 10, 1, 20, 6, 256, "a2a3");
+            long start = System.nanoTime();
+            String root = search("", 3000, 14, 2, 20, 8, 512, "", false);
+            long coldMs = (System.nanoTime() - start) / 1_000_000;
+            check(root.contains("multipv 2") && root.contains("wdl "), "eight-thread review failed");
+            start = System.nanoTime();
+            String warmed = search("", 3000, 14, 2, 20, 8, 512, "", true);
+            long warmMs = (System.nanoTime() - start) / 1_000_000;
+            check(warmed.contains("multipv 2") && warmed.contains("wdl "), "warm review failed");
+            String forced = search("", 400, 10, 1, 20, 8, 512, "a2a3", true);
             check(forced.contains("bestmove a2a3"), "high-resource played-move search failed");
             String quick = search("e2e4", 250, 8, 1, 20, 2, 128, "");
             check(quick.contains("wdl ") && quick.contains("bestmove "), "could not restore ordinary budget");
-            System.out.println("Review performance probe passed: six threads / 256 MiB, root and restricted searches, restore two threads / 128 MiB.");
+            Thread computation = new Thread(() -> search("", 10000, 0, 2, 20, 8, 512, "", true));
+            computation.start();
+            Thread.sleep(200);
+            stop();
+            computation.join(2500);
+            check(!computation.isAlive(), "warm high-resource cancellation timed out");
+            String resumed = search("e2e4 e7e5", 250, 8, 1, 20, 2, 128, "", false);
+            check(resumed.contains("bestmove "), "could not resume ordinary analysis");
+            System.out.println("Review performance probe passed: eight threads / 512 MiB, warm cache, restricted search, cancellation and ordinary-budget resume. Cold=" + coldMs + " ms, warm=" + warmMs + " ms (host sample).");
             return;
         }
         String root = search("", 500, 10, 3, 20, 1, 64, "");

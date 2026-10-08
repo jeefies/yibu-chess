@@ -77,18 +77,17 @@ class UiLayoutTest {
             val lesson = MoveCoach.explain(root, base.reviews.last().copy(best = evaluation))
             compose.runOnIdle { state.value = state.value.copy(game = base.copy(lessons = listOf(lesson),
                 reviews = base.reviews.dropLast(1) + base.reviews.last().copy(best = evaluation, played = evaluation))) }
-            compose.onNodeWithText("为什么这样走").performScrollTo().assertIsDisplayed()
-            compose.onNodeWithText(lesson.why).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("打开讲解与棋盘演示").performScrollTo().assertIsDisplayed()
+            compose.runOnIdle { state.value = state.value.copy(lessonOpen = true, variation = lesson.variation, variationBase = 7) }
+            compose.onNodeWithTag("lesson-why").assertTextEquals(lesson.why).assertIsDisplayed()
             screenshot("review-lesson-why")
-            compose.onNodeWithText("后续思路").performScrollTo().assertIsDisplayed()
-            // A long text block can be taller than the viewport; scroll the parent
-            // once instead of asking performScrollTo to fit the whole paragraph.
-            compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("后续思路")))
+            compose.onNodeWithText("全文").performClick()
+            compose.onNodeWithTag("lesson-notes")
                 .performSemanticsAction(SemanticsActions.ScrollBy) { scroll -> scroll(0f, 300f) }
-            compose.onNodeWithText(lesson.plan).assertIsDisplayed()
+            compose.onNodeWithTag("lesson-plan").assertIsDisplayed()
+            compose.onNodeWithContentDescription("国际象棋棋盘，白方视角").assertIsDisplayed()
             screenshot("review-lesson-plan")
-            compose.onNodeWithText("跟走这条思路").performScrollTo().assertIsDisplayed()
-            compose.runOnIdle { state.value = state.value.copy(page = 2, games = listOf(base,
+            compose.runOnIdle { state.value = state.value.copy(page = 2, lessonOpen = false, games = listOf(base,
                 base.copy(id = base.id + 1, difficulty = Difficulty.STRONG, rated = false, opponentEngine = "Stockfish 17.1",
                     finished = true, result = "0-1", humanWhite = true))) }
             compose.onAllNodesWithText("删除").assertCountEquals(2)

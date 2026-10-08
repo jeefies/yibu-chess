@@ -18,7 +18,7 @@ import java.security.MessageDigest
 object NativeBridge {
     init { System.loadLibrary("yibu_stockfish") }
     @JvmStatic external fun initialize(directory: String)
-    @JvmStatic external fun search(history: String, timeMs: Int, depth: Int, multiPv: Int, skill: Int, threads: Int, hash: Int, restricted: String): String
+    @JvmStatic external fun search(history: String, timeMs: Int, depth: Int, multiPv: Int, skill: Int, threads: Int, hash: Int, restricted: String, reuseSearch: Boolean): String
     @JvmStatic external fun stop()
 }
 
@@ -64,10 +64,10 @@ class NativeStockfish(private val context: Context) : ChessEngine {
         check(legal.isNotEmpty()) { "当前局面没有合法走法" }
         check(request.restricted.all { it in legal }) { "非法的指定走法" }
         val multiPv = minOf(request.multiPv, if (request.restricted.isEmpty()) legal.size else request.restricted.size)
-        val availableThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 6)
+        val availableThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
         val output = withContext(Dispatchers.IO) {
             NativeBridge.search(history.joinToString(" "), request.timeMs.coerceIn(50, 10000), request.depth,
-                multiPv, request.skill.coerceIn(0, 20), request.threads.coerceIn(1, availableThreads), request.hashMb.coerceIn(16, 256), request.restricted.joinToString(" "))
+                multiPv, request.skill.coerceIn(0, 20), request.threads.coerceIn(1, availableThreads), request.hashMb.coerceIn(16, 512), request.restricted.joinToString(" "), request.reuseSearch)
         }
         currentCoroutineContext().ensureActive()
         UciParser.parse(output, multiPv)

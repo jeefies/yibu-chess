@@ -23,7 +23,9 @@ assert apk.is_file(), "Build the release APK first"
 excluded = {".git", ".gradle", ".kotlin", ".cxx", "build", "artifacts", "signing", "__pycache__"}
 sources = [p for p in root.rglob("*") if p.is_file() and not any(part in excluded for part in p.relative_to(root).parts)
            and p.name != "local.properties" and not p.name.endswith(".log")]
-code = [p for p in sources if p.suffix in {".kt", ".java", ".cpp", ".h", ".xml"} or p.name.endswith(".gradle.kts")]
+code = [p for p in sources if (p.suffix in {".kt", ".java", ".cpp", ".h", ".xml"} or p.name.endswith(".gradle.kts"))
+        and "src/test" not in str(p.relative_to(root)) and "src/androidTest" not in str(p.relative_to(root))
+        and "tools" not in p.relative_to(root).parts]
 assert all(p.stat().st_mtime <= apk.stat().st_mtime for p in code), "Rebuild APK after the most recent source change"
 shutil.copy2(apk, out / f"yibu-{version}-arm64.apk")
 with zipfile.ZipFile(out / f"yibu-{version}-source.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
@@ -44,7 +46,7 @@ selected_reports = [root / p for p in args.test_report]
 validation = {
     "scope": "only changed features and directly affected behavior",
     "selected_test_suites": {str(p.relative_to(root)): test_status(p) for p in selected_reports},
-    "full_regression": "not run", "android_lint": "not run",
+    "full_regression": "not run", "full_android_lint": "not run",
     "release_apk": "assembled with existing personal signing configuration",
     "upload_verification": "not performed",
     "xiaomi_17_pro": "not run on a physical device in Cloud"

@@ -30,6 +30,73 @@ import java.time.Duration
 class PlayInteractionTest {
     @get:Rule val compose = createComposeRule()
 
+    private fun lessonScreenshot(name: String) {
+        compose.runOnIdle {
+            val root = android.view.inspector.WindowInspector.getGlobalWindowViews().last()
+            val bitmap = android.graphics.Bitmap.createBitmap(root.width, root.height, android.graphics.Bitmap.Config.ARGB_8888)
+            root.draw(android.graphics.Canvas(bitmap))
+            val output = java.io.File("../artifacts/ui-0.6.0").apply { mkdirs() }
+            java.io.File(output, "$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
+    }
+
+    @Test @Config(qualifiers = "w412dp-h915dp-mdpi")
+    fun deepReviewCacheOpensAnAnnotatedBoardAndPlaybackWithoutRepeatingSearch() {
+        assumeTrue(System.getProperty("startup.native") == "true")
+        val model = GameViewModel(ApplicationProvider.getApplicationContext())
+        val store = ViewModelStore().apply { put("lesson", model) }
+        try {
+            compose.setContent { ChessApp(model) }
+            waitFor(model) { model.state.value.ready && !model.state.value.busy }
+            val moves = listOf("e2e4", "e7e5", "g1f3", "b8c6")
+            val reviews = moves.mapIndexed { index, move ->
+                // A search capped at depth 22 cannot produce these depth-26 sentinel results.
+                val pv = if (index == 2) listOf("g1f3", "b8c6", "f1b5", "a7a6") else listOf(move)
+                val evaluation = cn.yibu.chess.core.Evaluation(26, cp = 12, pv = pv)
+                cn.yibu.chess.core.MoveReview(index + 1, move, ChessRules.san(moves.take(index), move), evaluation, evaluation,
+                    grade = cn.yibu.chess.core.Grade.GOOD, explanation = "", provisional = true,
+                    algorithmVersion = 3, scoringElo = 500, deeplySearched = true)
+            }
+            val game = cn.yibu.chess.core.EloRules.newGame(cn.yibu.chess.core.PlayerProfile(), humanWhite = true)
+                .copy(moves = moves, reviews = reviews)
+            compose.runOnIdle { model.load(game); model.reviewAll() }
+            waitFor(model) { !model.state.value.busy }
+            assertEquals(reviews, model.state.value.game.reviews)
+            compose.runOnIdle { model.cursor(3); model.explainSelected() }
+            waitFor(model) { !model.state.value.busy }
+            assertNull(model.state.value.error)
+            assertEquals(reviews, model.state.value.game.reviews)
+            assertTrue(model.state.value.lessonOpen)
+            val lesson = model.state.value.chosenLesson!!
+            assertEquals(lesson.variation, lesson.steps.map { it.uci })
+            compose.onNodeWithTag("lesson-why").assertTextEquals(lesson.why).assertIsDisplayed()
+            compose.onNodeWithContentDescription("国际象棋棋盘，白方视角").assertIsDisplayed()
+            lessonScreenshot("lesson-why")
+            compose.onNodeWithText("下一步").performClick()
+            assertEquals(moves.take(2) + lesson.variation.take(1), model.state.value.boardHistory)
+            compose.onNodeWithTag("lesson-step-explanation").assertTextEquals(lesson.steps.first().explanation).assertIsDisplayed()
+            lessonScreenshot("lesson-step")
+            compose.onNodeWithText("演示").performClick()
+            waitFor(model) { model.state.value.variationStep >= 2 }
+            compose.onNodeWithText("暂停演示").performClick()
+            val paused = model.state.value.variationStep
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+            assertEquals(paused, model.state.value.variationStep)
+            compose.onNodeWithText("全文").performClick()
+            compose.onNodeWithTag("lesson-plan").assertTextEquals(lesson.plan)
+            compose.onNodeWithContentDescription("国际象棋棋盘，白方视角").assertIsDisplayed()
+            compose.onNodeWithText("返回复盘").performClick()
+            assertFalse(model.state.value.lessonOpen)
+            assertEquals(3, model.state.value.cursor)
+            compose.runOnIdle { model.explainSelected() }
+            assertFalse(model.state.value.busy)
+            assertTrue(model.state.value.lessonOpen)
+            val restored = runBlocking { GameRepository(ApplicationProvider.getApplicationContext()).latest() }
+            assertEquals(lesson, restored?.lessons?.single())
+        } finally { compose.runOnIdle { store.clear() } }
+    }
+
     private fun waitFor(model: GameViewModel, condition: () -> Boolean) {
         try {
             compose.waitUntil(45_000) {

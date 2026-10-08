@@ -53,10 +53,14 @@ data class MoveReview(
     val playedExpectedPoints: Double? = null,
     val brilliantReason: String? = null,
     val brilliantPlan: String? = null,
+    val deeplySearched: Boolean = false,
 ) {
     val pointsLost: Double get() = ((bestExpectedPoints ?: best.expected) - (playedExpectedPoints ?: played.expected)).coerceAtLeast(0.0)
     val bestMove: String get() = best.pv.firstOrNull() ?: uci
     val moverWhite: Boolean get() = ply % 2 == 1
+    fun canReuseDeep(elo: Int): Boolean = algorithmVersion == 3 && scoringElo == elo &&
+        engineVersion == "Stockfish 17.1" && (deeplySearched || !provisional) &&
+        grade != Grade.UNSTABLE && best.depth >= 12 && best.depth == played.depth
 }
 
 @Serializable
@@ -104,7 +108,11 @@ data class MoveLesson(
     val variation: List<String>,
     val depth: Int,
     val algorithmVersion: Int = 1,
+    val steps: List<LessonStep> = emptyList(),
 )
+
+@Serializable
+data class LessonStep(val uci: String, val title: String, val explanation: String)
 
 private object GameIds {
     private val last = java.util.concurrent.atomic.AtomicLong()
@@ -119,6 +127,7 @@ data class SearchRequest(
     val threads: Int = 1,
     val hashMb: Int = 64,
     val restricted: List<String> = emptyList(),
+    val reuseSearch: Boolean = false,
 )
 
 data class SearchResult(val bestMove: String, val snapshots: Map<Int, List<Evaluation>>) {

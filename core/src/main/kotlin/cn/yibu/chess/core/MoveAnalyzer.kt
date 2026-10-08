@@ -26,7 +26,8 @@ class MoveAnalyzer(private val engine: ChessEngine) {
         val legal = ChessRules.legal(history)
         require(uci in legal)
         val request = SearchRequest(timeMs = if (deep) 6000 else 1500, depth = if (deep) 22 else 18,
-            multiPv = minOf(3, legal.size), threads = if (deep) 6 else 2, hashMb = if (deep) 256 else 128)
+            multiPv = minOf(if (deep) 2 else 3, legal.size), threads = if (deep) 8 else 2,
+            hashMb = if (deep) 512 else 128, reuseSearch = deep)
         var root = engine.search(history, request)
         var best = root.best
         var actual = root.lines.find { it.pv.firstOrNull() == uci }
@@ -84,6 +85,6 @@ class MoveAnalyzer(private val engine: ChessEngine) {
         return MoveReview(history.size + 1, uci, ChessRules.san(history, uci), best, played, second,
             grade, explanation, provisional = !deep || !stable || nearThreshold || best.depth < 12,
             algorithmVersion = 3, scoringElo = playerElo, bestExpectedPoints = bestPoints, playedExpectedPoints = playedPoints,
-            brilliantReason = brilliant?.reason, brilliantPlan = brilliant?.plan)
+            brilliantReason = brilliant?.reason, brilliantPlan = brilliant?.plan, deeplySearched = deep)
     }
 }

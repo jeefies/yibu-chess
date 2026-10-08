@@ -12,7 +12,7 @@
 - AI 落子前等待随机 1–2 秒，实际搜索时间包含在这段时间内；搜索更久时不再额外等待。切页、切后台、新局与删除都会取消旧回合的等待。
 - 对弈界面隐藏普通评级、分值与最佳走法。仅对双方经深度验证的 !! 显示弃子原因和后续参考变化；提示保留到玩家下一次落子。
 - Stockfish 在后台保存逐步分析，对弃子候选自动追加深入验证。完整评级、最佳走法和曲线在复盘查看。
-- 复盘：逐步导航、局势曲线、完整走棋列表、推荐/实战变化跟走、单步/整盘深度复评。深度分析使用最多 6 线程、256 MiB Hash 提速。每一步可点击“讲解这一步”，只为当前一步生成原因、对手关键应对和后续计划，缓存到棋谱；“跟走这条思路”可在棋盘上逐着查看。
+- 复盘：逐步导航、局势曲线、完整走棋列表、推荐/实战变化跟走、单步/整盘深度复评。深度分析使用最多 8 线程、512 MiB Hash，保留搜索缓存并复用有效深度结果。每一步可点击“讲解这一步”，进入同屏棋盘与说明：原因、后续每着注释、全文、前后步进与自动演示；棋盘和操作固定可见，讲解缓存到棋谱。
 - Room 自动保存对局和分析。切到后台停止当前计算，回前台可继续机器人回合；整盘分析按步保存。
 - 标准将杀/逼和、保守死局子力判断、五次重复/75 回合自动和棋；三次重复/50 回合允许申请和棋。
 - 导出 PGN、包含完整分析的 JSON、运行诊断与开源许可证；应用无 INTERNET 权限。
@@ -23,18 +23,26 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 ## 在手机上安装
 
-[下载 ARM64 APK（约 84 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.5.1-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.5.1-arm64.apk)
+[下载 ARM64 APK（约 84 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.6.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.6.0-arm64.apk)
 
 该仓库为私有仓库，请先在手机浏览器登录 `well49112`。安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
 
-1. 下载 `yibu-0.5.1-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
+1. 下载 `yibu-0.6.0-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
 2. 首次启动会校验 Stockfish 与 Maia 权重并复制到应用私有目录，稍等离线引擎就绪。
 3. 首次使用默认匹配 Elo 500、随机执棋，直接进入对局。“新局”每盘重新抽颜色；“对局设置”可主动选匹配或最强及颜色。旧版未完成匹配局会改用 Maia 继续，保留原有计分资格。
 4. 断网/飞行模式仍可对弈与复盘。
-5. “复盘”中选择一步，点击“讲解这一步”后等待深入分析，即可查看走法原因与后续思路；生成后会保存，无需重复计算。也可跟走推荐或实战变化。黄色箭头显示分支第一着；“下一步”逐步进入分支，“末尾”退出分支。
+5. “复盘”中选择一步，点击“讲解这一步”打开棋盘讲解。棋盘停在落子前，可看原因、完整文字；“下一步”在棋盘演示参考走法并显示对应解释，“演示”自动播放，“末尾”展示这条变化的终点。“返回复盘”回到原棋步。已完成的有效深度结果会直接用于讲解，旧版已保存讲解也可打开，不重新搜索。
 6. 同一签名、同一包名且更高版本号的 APK 可以覆盖升级并保留棋谱。卸载会删除本地棋谱和个人分数，请先导出需要保留的 PGN/JSON。
 
 最低 Android 8.0 (API 26)，目标 SDK 35，原生库包含 16 KB ELF 对齐，以压缩形式随 APK 打包并由 Android 安装时解压。首版仅打包 arm64，不适用于 32 位设备。
+
+## 0.6.0 同屏棋盘讲解与更快深度复盘
+
+讲解模式将棋盘固定在上方，下面集中展示“为什么这样走”“后续思路”和“全文”。长文字只在说明区滚动，棋盘与起始、前后步进、自动演示、末尾操作始终可见。每一着参考变化都有合法局面对应的 SAN、移动说明、原因和走法箭头，自动演示可随时暂停；不把所有文字挤成难读的小字。返回复盘保留原选中的实战棋步。
+
+深度复盘及讲解提升到最多 8 线程、512 MiB Hash，线程不超过可用处理器数。原生接口仅在选项变化时配置线程与缓存，避免每次搜索重建线程池和分配 Hash；深度分析保留转置表与搜索启发信息，普通分析仍按原先方式清空。暂停、换页、换局会标记下次搜索重置缓存。深度分析只同时搜索评级需要的最佳和次佳两条变化，实战走法不在候选中则补搜，保持同深度比较、目标深度 22、单次最多 6 秒。稳定且版本、评分 Elo 相符的深度结果可直接生成讲解，整盘复评也跳过已完成的有效结果；临界评级保留“待确认”，不因缓存升级为确定评价。
+
+新讲解保存逐着注释；旧 JSON 字段有默认值，旧讲解无需搜索即可本地补全注释，原始文字保留。版本 0.6.0，versionCode 10，签名沿用原有密钥。只检查缓存、合法逐步注释、对应棋盘、全文滚动、小屏和相关取消行为；上传后直接提供下载页面。
 
 ## 0.5.1 更短等待与深度复盘加速
 
@@ -84,7 +92,7 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 chmod +x gradlew tools/*.sh
 tools/setup-cloud.sh
 # 将过滤器换成本次修改相关的测试；不运行全量回归。
-tools/with-env.sh ./gradlew :core:test --tests 'cn.yibu.chess.core.AnalysisPerformanceTest' --tests 'cn.yibu.chess.core.CoachingAndMotionTest.pacingCountsSearchTimeAndNeverAddsDelayToASlowSearch' :app:assembleRelease
+tools/with-env.sh ./gradlew :core:test --tests 'cn.yibu.chess.core.AnalysisPerformanceTest' --tests 'cn.yibu.chess.core.LessonPlaybackTest' :app:assembleRelease
 ```
 
 默认安装在 `/workspace/android-toolchain`，可用 `ANDROID_TOOLCHAIN_DIR` 指定其他目录。初始化脚本重复运行会复用已校验文件。JDK/Gradle/命令行工具下载均锁定 SHA-256。
@@ -99,7 +107,9 @@ Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推�
 
 附带的 `.github/workflows/android.yml` 支持手动构建 APK。先配置下文的签名 Secret，再到 Actions → Android APK → Run workflow 启动；可填写与本次改动相关的 core / Android 测试过滤器，留空则只构建，避免默认执行全量测试。每次构建会保存可下载产物。源码推送不会自动触发尚未配置签名的构建。
 
-打包时显式传入本次运行的测试报告，例如 `python3 tools/package-artifacts.py --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.AnalysisPerformanceTest.xml --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.CoachingAndMotionTest.xml`。构建清单只记录这些报告中的用例，不会把旧版全量测试或 lint 结果当成本版验证。
+0.6.0 的原生缓存及暂停检查可运行 `tools/with-env.sh python3 tools/test-native.py --review-performance`，只执行此次更改涉及的检查。宿主 JNI 编译后将 `artifacts/native-probe/libyibu_stockfish_host.so` 复制为同目录下的 `libyibu_stockfish.so`，相关 ViewModel / Compose 用例通过 `-PstartupNativeDir=/workspace/chess-coach/artifacts/native-probe` 使用该库；其余 UI 用例无需引擎。
+
+打包时用 `--test-report` 逐个显式传入本次运行的 JUnit XML 报告，例如 `python3 tools/package-artifacts.py --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.AnalysisPerformanceTest.xml --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.LessonPlaybackTest.xml`。构建清单只记录传入报告中的用例，不会把旧版全量测试或 lint 结果当成本版验证。
 
 ## Maia 模型与复现
 
