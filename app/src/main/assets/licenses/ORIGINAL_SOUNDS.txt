@@ -1,0 +1,10 @@
+弈步原创离线音效 · 0.7.1
+
+19 类音效由本项目 tools/generate-sounds.py 程序合成：使用正弦波、谐波、确定性噪声、短促包络及衰减，没有使用外部录音、音乐或采样素材。
+
+音频：app/src/main/res/raw/sfx_*.wav
+格式：44.1 kHz、单声道、16 bit PCM WAV
+重建：python3 tools/generate-sounds.py
+许可：AGPL-3.0，与弈步应用源码相同。
+
+MOVE / CAPTURE / CASTLE / PROMOTE / CHECK / CHECKMATE / RESIGN / SHATTER / WIN / LOSE / DRAW / START / SELECT / ILLEGAL / NAVIGATE / CONFIRM / DELETE / ERROR / BRILLIANT

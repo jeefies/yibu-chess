@@ -1,6 +1,6 @@
 # 开源组件与版本
 
-弈步 0.7.0 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
+弈步 0.7.1 应用源码与包含 Maia-3 的组合使用 AGPL-3.0；第三方组件保留原有许可。完整源码、模型原始检查点、转换脚本和离线权重与本版本一同交付。
 
 ## Stockfish
 
@@ -58,3 +58,5 @@
 - 安装位置：.agents/skills，包含上游技能与参考文件。
 - 许可证：MIT，全文见 .agents/skills/LICENSE-emilkowalski。
 - 本次界面使用 emil-design-eng 原则，图标为应用自有 Compose / Android 矢量绘制；技能文件不作为运行时依赖打包到 APK。
+
+本版 19 类音效由本项目 tools/generate-sounds.py 原创合成，无外部采样，随应用采用 AGPL-3.0。音频生成说明见 app/src/main/assets/licenses/ORIGINAL_SOUNDS.txt。

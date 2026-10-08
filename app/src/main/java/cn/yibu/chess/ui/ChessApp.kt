@@ -53,7 +53,10 @@ private fun gradeColor(grade: Grade): Color = when (grade) {
 @Composable
 fun ChessApp(model: GameViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
-    ChessScreen(state, model)
+    LaunchedEffect(state.error) { if (state.error != null) model.playFeedback(SoundCue.ERROR) }
+    CompositionLocalProvider(LocalSoundFeedback provides model::playFeedback, LocalReviewSound provides model::reviewSound) {
+        ChessScreen(state, model)
+    }
 }
 
 @Composable
@@ -79,7 +82,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                     HorizontalDivider(color = Line.copy(alpha = .6f))
                     NavigationBar(containerColor = Background, tonalElevation = 0.dp) {
                         listOf("对弈" to ChessIcon.KNIGHT, "复盘" to ChessIcon.REVIEW, "棋谱" to ChessIcon.LIBRARY).forEachIndexed { index, (name, icon) ->
-                            NavigationBarItem(selected = state.page == index, onClick = { model.page(index) },
+                            NavigationBarItem(selected = state.page == index, onClick = feedbackClick { model.page(index) },
                                 icon = { LineIcon(icon) }, label = { Text(name, fontSize = 12.sp) },
                                 colors = NavigationBarItemDefaults.colors(indicatorColor = Soft,
                                     selectedIconColor = Accent, selectedTextColor = Accent,
@@ -120,7 +123,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                 else StatusPill(if (!state.game.humanWhite xor flipOverride) "黑方在下" else "白方在下")
                             }
                             if (state.page == 1) {
-                                PrimaryAction("全局复盘 · 自动看关键点", model::reviewHighlights, Modifier.fillMaxWidth(),
+                                PrimaryAction("全局复盘 · 手动看关键点", model::reviewHighlights, Modifier.fillMaxWidth(),
                                     state.ready && !state.busy && state.game.moves.isNotEmpty(), ChessIcon.REVIEW)
                             }
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -134,14 +137,18 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                         animationKey = state.game.id,
                                         kingBreak = if (state.page == 0) state.kingBreak else null,
                                         onKingBreakFinished = model::finishKingBreak,
+                                        onKingBreakStarted = model::kingBreakStarted,
                                         arrow = if (state.variation.isNotEmpty() && state.variationStep == 0) state.variation.first() else null) { square ->
                                         if (state.page == 0 && state.ready && !state.busy && state.humanTurn && !state.game.finished) {
                                             val choices = legal.filter { it.take(2) == selected?.let(ChessRules::squareName) && it.substring(2, 4) == ChessRules.squareName(square) }
                                             when {
                                                 choices.size > 1 -> { promotion = choices; selected = null }
                                                 choices.size == 1 -> { model.play(choices.first()); selected = null }
-                                                legal.any { it.take(2) == ChessRules.squareName(square) } -> selected = if (selected == square) null else square
-                                                else -> selected = null
+                                                legal.any { it.take(2) == ChessRules.squareName(square) } -> {
+                                                    model.playFeedback(SoundCue.SELECT)
+                                                    selected = if (selected == square) null else square
+                                                }
+                                                else -> { if (selected != null) model.playFeedback(SoundCue.ILLEGAL); selected = null }
                                             }
                                         }
                                     }
@@ -172,36 +179,36 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                     Spacer(Modifier.width(10.dp))
                                     Text(state.status, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                    if (state.page == 1 && state.busy) TextButton(onClick = model::pauseReview) { Text("暂停") }
+                                    if (state.page == 1 && state.busy) TextButton(onClick = feedbackClick(model::pauseReview)) { Text("暂停") }
                                 }
                             }
                             if (state.error != null) {
                                 Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(14.dp)) {
                                     Column(Modifier.padding(14.dp)) {
                                         Text(state.error, fontSize = 13.sp, color = Danger)
-                                        TextButton(onClick = model::retry, enabled = state.ready && !state.busy) { Text("继续／重试") }
+                                        TextButton(onClick = feedbackClick(model::retry), enabled = state.ready && !state.busy) { Text("继续／重试") }
                                     }
                                 }
                             }
                             if (state.page == 1) {
                                 PrimaryAction("整盘深度复评", model::reviewAll, Modifier.fillMaxWidth(),
                                     state.ready && !state.busy && state.game.moves.isNotEmpty(), ChessIcon.REVIEW)
-                                OutlinedButton(onClick = { context.startActivity(model.share(false)) },
+                                OutlinedButton(onClick = feedbackClick { context.startActivity(model.share(false)) },
                                     enabled = state.game.moves.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                                     LineIcon(ChessIcon.SHARE, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("导出 PGN")
                                 }
                                 Text("讲解只在点击后生成，按步保存。深度复评可能更新推荐与评级。", color = Muted, fontSize = 11.sp)
                             } else {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedButton(onClick = { if (state.game.finished) model.reviewHighlights() else model.page(1) }, enabled = state.game.moves.isNotEmpty() && !state.busy,
+                                    OutlinedButton(onClick = feedbackClick { if (state.game.finished) model.reviewHighlights() else model.page(1) }, enabled = state.game.moves.isNotEmpty() && !state.busy,
                                         modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(14.dp)) {
                                         LineIcon(ChessIcon.REVIEW, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                                         Text(if (state.game.finished) "关键点复盘" else "查看复盘")
                                     }
-                                    if (!state.game.finished) TextButton(onClick = { resignDialog = true }, enabled = !state.busy) { Text("认输", color = Muted) }
+                                    if (!state.game.finished) TextButton(onClick = feedbackClick { resignDialog = true }, enabled = !state.busy) { Text("认输", color = Muted) }
                                 }
                                 if (!state.game.finished && state.humanTurn && ChessRules.drawClaim(state.game.moves) != null)
-                                    OutlinedButton(onClick = model::claimDraw, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("申请和棋 · ${ChessRules.drawClaim(state.game.moves)}") }
+                                    OutlinedButton(onClick = feedbackClick(model::claimDraw), enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("申请和棋 · ${ChessRules.drawClaim(state.game.moves)}") }
                                 if (state.game.finished && state.game.ratingChange == null)
                                     Text("${model.resultChinese(state.game)} · ${state.game.ending}", color = Accent, fontSize = 14.sp)
                                 if (!state.game.finished) Text("${if (state.analyzing) "棋谱正在后台整理" else "棋谱自动保存"} · 完整分析在复盘查看", color = Muted,
@@ -219,27 +226,28 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
         if (promotion.isNotEmpty()) AlertDialog(onDismissRequest = { promotion = emptyList() }, title = { Text("选择升变棋子") }, text = {
             Column {
                 listOf('q' to "后 ♛", 'r' to "车 ♜", 'b' to "象 ♝", 'n' to "马 ♞").forEach { (piece, title) ->
-                    TextButton(onClick = { promotion.find { it.last() == piece }?.let(model::play); promotion = emptyList() }, modifier = Modifier.fillMaxWidth()) { Text(title) }
+                    TextButton(onClick = feedbackClick { promotion.find { it.last() == piece }?.let(model::play); promotion = emptyList() }, modifier = Modifier.fillMaxWidth()) { Text(title) }
                 }
             }
         }, confirmButton = {})
         if (resignDialog) AlertDialog(onDismissRequest = { resignDialog = false }, title = { Text("结束这盘对局？") }, text = { Text("棋谱和分析会保留。${if (state.game.rated) "本局按负局结算个人 Elo。" else "本局不改变个人 Elo。"}") },
-            confirmButton = { TextButton(onClick = { model.resign(); resignDialog = false }) { Text("认输") } }, dismissButton = { TextButton(onClick = { resignDialog = false }) { Text("继续对弈") } })
+            confirmButton = { TextButton(onClick = feedbackClick { model.resign(); resignDialog = false }) { Text("认输") } }, dismissButton = { TextButton(onClick = feedbackClick { resignDialog = false }) { Text("继续对弈") } })
         if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("关于弈步 · ${BuildConfig.VERSION_NAME}") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("拟人对手：Maia-3 5M\n用人类棋谱训练，按走法概率选择，近期重复开局会适度减权。模型与 Stockfish 17.1 随安装包提供，全程离线。最强对手继续使用 Stockfish。", fontSize = 13.sp)
                 Text("新局默认随机白黑，点击即开始。可在对局设置里主动选择，选择会记住。对弈时只提示经过深度验证的 !!，附上弃子原因和参考变化；完整评级与推荐走法在复盘查看。", fontSize = 13.sp)
-                Text("将杀和认输后，落败方的王会播放碎裂特效。全局复盘会挑选几个关键节点，自动展示实战与推荐思路；可随时暂停或返回逐步复盘。", fontSize = 13.sp)
-                Text("对手落子前默认思考约1–2秒，搜索时间计入等待。复盘点击“讲解这一步”，棋盘与原因、后续思路在同一屏查看，每着参考变化都有说明，可逐步跟走或自动演示。深度分析使用最多8线程与512 MiB缓存，复用已有分析与搜索缓存。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
+                Text("音效随 APK 离线提供，始终开启并跟随手机媒体音量。落子、吃子、易位、升变、将军、终局、王碎裂、复盘和界面操作均有声音。", fontSize = 13.sp)
+                Text("将杀和认输后，落败方的王会播放碎裂特效。全局复盘会挑选几个关键节点，手动查看实战与推荐思路，点“下一步”继续，可返回逐步复盘。", fontSize = 13.sp)
+                Text("对手落子前默认思考约1–2秒，搜索时间计入等待。复盘点击“讲解这一步”，棋盘与原因、后续思路在同一屏查看，每着参考变化都有说明，通过“上一步”“下一步”手动跟走。深度分析使用最多8线程与512 MiB缓存，复用已有分析与搜索缓存。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
                 Text("个人 Elo 从500开始，与 Chess.com 分数独立。匹配局的胜负与和棋按 Elo 公式结算；最强局不计分。前10盘调整较快。删除棋谱不会撤销分数；旧版对局不补计分。", fontSize = 13.sp)
                 Text("采用 Chess.com 公开的预期得分损失阈值：\n最佳：引擎最佳或等值走法\n小于2个百分点：优秀\n2–5：不错 · 5–10：?!\n10–20：? · 20以上：??\n! 是关键好棋，!! 是深入验证的合理弃子。", fontSize = 13.sp)
                 Text("Chess.com 完整算法未公开。这里用引擎分值和棋力估算预期得分。Maia 使用另一套棋谱分数范围，个人 Elo 与模型强度的对应仍是近似值，不能等同平台真人分数。", color = Muted, fontSize = 12.sp)
                 Text("Maia-3 / 弈步：AGPLv3\nStockfish：GPLv3-or-later\nONNX Runtime：MIT · chesslib：Apache-2.0\n完整许可和模型版本记录包含在源码及 APK 内。", fontSize = 12.sp)
-                TextButton(onClick = { context.startActivity(model.share(true)) }) { Text("导出对局诊断 JSON") }
-                TextButton(onClick = { context.startActivity(model.shareRuntimeDiagnostics()) }) { Text("导出运行诊断") }
-                TextButton(onClick = { context.startActivity(model.shareLicenses()) }) { Text("查看／导出开源许可证") }
+                TextButton(onClick = feedbackClick { context.startActivity(model.share(true)) }) { Text("导出对局诊断 JSON") }
+                TextButton(onClick = feedbackClick { context.startActivity(model.shareRuntimeDiagnostics()) }) { Text("导出运行诊断") }
+                TextButton(onClick = feedbackClick { context.startActivity(model.shareLicenses()) }) { Text("查看／导出开源许可证") }
             }
-        }, confirmButton = { TextButton(onClick = { aboutDialog = false }) { Text("知道了") } })
+        }, confirmButton = { TextButton(onClick = feedbackClick { aboutDialog = false }) { Text("知道了") } })
     }
 }
 
@@ -316,7 +324,7 @@ private fun ReviewNavigation(state: AppState, model: GameViewModel) {
                 Triple("上一步", ChessIcon.PREVIOUS, { model.step(-1) }),
                 Triple("下一步", ChessIcon.NEXT, { model.step(1) }),
                 Triple("末尾", ChessIcon.LAST, { model.cursor(state.game.moves.size) })).forEach { (name, icon, click) ->
-                Column(Modifier.weight(1f).clickable(onClick = click).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.weight(1f).clickable(onClick = feedbackClick(click)).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     LineIcon(icon, Modifier.size(22.dp), Accent)
                     Spacer(Modifier.height(4.dp))
                     Text(name, fontSize = 11.sp, color = Accent)
@@ -348,7 +356,7 @@ private fun RatingCard(state: AppState, model: GameViewModel) {
             if (review == null) {
                 Text(if (state.game.moves.isEmpty()) "从第一步开始" else "本步尚未完成分析", fontWeight = FontWeight.SemiBold)
                 Text("选择一步棋，点击深度复评即可分析。", color = Muted, fontSize = 13.sp)
-                if (state.page == 1 && state.cursor > 0) TextButton(onClick = model::analyzeSelected, enabled = state.ready && !state.busy) { Text("分析本步") }
+                if (state.page == 1 && state.cursor > 0) TextButton(onClick = feedbackClick(model::analyzeSelected), enabled = state.ready && !state.busy) { Text("分析本步") }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(review.grade.symbol.ifEmpty { "•" }, fontSize = 27.sp, fontWeight = FontWeight.Bold, color = gradeColor(review.grade))
@@ -366,18 +374,18 @@ private fun RatingCard(state: AppState, model: GameViewModel) {
                 if (state.page == 1) {
                     Text("推荐：${ChessRules.variationSan(root, review.best.pv.take(6)).joinToString("  ")}", color = Muted, fontSize = 12.sp)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = { model.showVariation(true) }, modifier = Modifier.weight(1f),
+                        FilledTonalButton(onClick = feedbackClick { model.showVariation(true) }, modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 6.dp)) { Text("跟走推荐", fontSize = 12.sp) }
-                        OutlinedButton(onClick = { model.showVariation(false) }, modifier = Modifier.weight(1f),
+                        OutlinedButton(onClick = feedbackClick { model.showVariation(false) }, modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 6.dp)) { Text("实战变化", fontSize = 12.sp) }
                     }
-                    TextButton(onClick = model::analyzeSelected, enabled = !state.busy && state.ready) { Text("复评本步") }
+                    TextButton(onClick = feedbackClick(model::analyzeSelected), enabled = !state.busy && state.ready) { Text("复评本步") }
                 }
             }
             if (state.cursor > 0) {
                 val lesson = state.chosenLesson
                 if (lesson == null) {
-                    FilledTonalButton(onClick = model::explainSelected, enabled = state.ready && !state.busy,
+                    FilledTonalButton(onClick = feedbackClick(model::explainSelected), enabled = state.ready && !state.busy,
                         modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                         Text(if (state.explainingPly == state.cursor) "正在讲解第 ${state.cursor} 步…" else "讲解这一步")
                     }
@@ -386,7 +394,7 @@ private fun RatingCard(state: AppState, model: GameViewModel) {
                     HorizontalDivider(color = Line)
                     Text("为什么这样走", color = Accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     Text("离线讲解 · 搜索深度 ${lesson.depth} · 已保存", fontSize = 11.sp, color = Muted)
-                    FilledTonalButton(onClick = model::showLessonVariation, modifier = Modifier.fillMaxWidth()) { Text("打开讲解与棋盘演示") }
+                    FilledTonalButton(onClick = feedbackClick(model::showLessonVariation), modifier = Modifier.fillMaxWidth()) { Text("打开讲解与棋盘演示") }
                 }
             }
         }
@@ -405,7 +413,7 @@ private fun MoveStrip(state: AppState, model: GameViewModel) {
         itemsIndexed(sans) { index, san ->
             val review = state.game.reviews.find { it.ply == index + 1 }
             val active = (if (state.page == 1) state.cursor else state.game.moves.size) == index + 1
-            Surface(color = if (active) Accent else Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.clickable { if (state.page != 1) model.page(1); model.cursor(index + 1) }) {
+            Surface(color = if (active) Accent else Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.clickable(onClick = feedbackClick { if (state.page != 1) model.page(1); model.cursor(index + 1) })) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("${index / 2 + 1}${if (index % 2 == 0) "." else "…"} $san", fontSize = 13.sp, color = if (active) Color.White else Ink)
                     if (state.page == 1 || (review?.grade == Grade.BRILLIANT && !review.provisional))
@@ -468,7 +476,7 @@ private fun Library(state: AppState, model: GameViewModel) {
             }
         }
         items(state.games, key = { it.id }) { game ->
-            Card(Modifier.fillMaxWidth().clickable { model.load(game) }, shape = RoundedCornerShape(18.dp),
+            Card(Modifier.fillMaxWidth().clickable(onClick = feedbackClick { model.load(game) }), shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = Panel)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -491,7 +499,7 @@ private fun Library(state: AppState, model: GameViewModel) {
                         Text(if (change != null) "Elo ${change.before} → ${change.after}（${if (change.delta > 0) "+" else ""}${change.delta}）"
                             else if (game.rated) "${if (game.finished) "正在结算" else "结束后结算"} Elo" else "本局不计分",
                             color = Accent, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { pendingDelete = game }, enabled = !state.transitioning,
+                        TextButton(onClick = feedbackClick { pendingDelete = game }, enabled = !state.transitioning,
                             contentPadding = PaddingValues(horizontal = 8.dp)) {
                             LineIcon(ChessIcon.TRASH, Modifier.size(16.dp), Danger)
                             Spacer(Modifier.width(5.dp)); Text("删除", color = Danger, fontSize = 12.sp)
@@ -504,8 +512,8 @@ private fun Library(state: AppState, model: GameViewModel) {
     pendingDelete?.let { game ->
         AlertDialog(onDismissRequest = { pendingDelete = null }, title = { Text("删除这盘棋谱？") },
             text = { Text("棋谱和复盘分析将从手机中删除，无法恢复。已经结算的个人 Elo 会保留。") },
-            confirmButton = { TextButton(onClick = { model.delete(game); pendingDelete = null }) { Text("删除") } },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } })
+            confirmButton = { TextButton(onClick = feedbackClick { model.delete(game); pendingDelete = null }) { Text("删除") } },
+            dismissButton = { TextButton(onClick = feedbackClick { pendingDelete = null }) { Text("取消") } })
     }
 }
 
@@ -517,8 +525,8 @@ private fun NewGameDialog(initial: PlaySettings, rating: Int, onDismiss: () -> U
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text("你的个人 Elo：$rating", color = Accent, modifier = Modifier.padding(bottom = 8.dp))
             Difficulty.choices.forEach { option ->
-                Row(Modifier.fillMaxWidth().clickable { difficulty = option }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = difficulty == option, onClick = { difficulty = option })
+                Row(Modifier.fillMaxWidth().clickable(onClick = feedbackClick { difficulty = option }).padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = difficulty == option, onClick = feedbackClick { difficulty = option })
                     Column {
                         Text(if (option == Difficulty.MATCHED) "${option.chinese} · $rating" else option.chinese, fontSize = 15.sp)
                         Text(option.description, fontSize = 11.sp, color = Muted)
@@ -529,11 +537,11 @@ private fun NewGameDialog(initial: PlaySettings, rating: Int, onDismiss: () -> U
             Text("执棋颜色", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ColorPreference.entries.forEach { option ->
-                    FilterChip(selected = color == option, onClick = { color = option }, modifier = Modifier.weight(1f),
+                    FilterChip(selected = color == option, onClick = feedbackClick { color = option }, modifier = Modifier.weight(1f),
                         label = { Text(option.chinese, fontSize = 12.sp) })
                 }
             }
             Text("选择会记住；随机每盘重新抽取。当前对局会保留在棋谱中。", fontSize = 11.sp, color = Muted, modifier = Modifier.padding(top = 10.dp))
         }
-    }, confirmButton = { Button(onClick = { onStart(PlaySettings(difficulty, color)) }) { Text("开始对弈") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    }, confirmButton = { Button(onClick = feedbackClick { onStart(PlaySettings(difficulty, color)) }) { Text("开始对弈") } }, dismissButton = { TextButton(onClick = feedbackClick(onDismiss)) { Text("取消") } })
 }

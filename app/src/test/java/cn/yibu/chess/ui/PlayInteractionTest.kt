@@ -42,7 +42,7 @@ class PlayInteractionTest {
     }
 
     @Test @Config(qualifiers = "w412dp-h915dp-mdpi")
-    fun terminalEffectsAreTransientAndCachedGlobalReviewOpensTheAutomaticTour() {
+    fun terminalEffectsAreTransientAndCachedGlobalReviewOpensTheManualTourWithSound() {
         assumeTrue(System.getProperty("startup.native") == "true")
         val model = GameViewModel(ApplicationProvider.getApplicationContext())
         val store = ViewModelStore().apply { put("highlights", model) }
@@ -84,7 +84,7 @@ class PlayInteractionTest {
             assertTrue(model.state.value.highlights.size in 3..5)
             assertFalse(model.state.value.lessonOpen)
             assertTrue(model.state.value.game.lessons.isEmpty())
-            compose.onNodeWithText("暂停").assertIsDisplayed()
+            compose.onNodeWithText("下一步").assertIsDisplayed()
             compose.onNodeWithTag("highlight-board").assertIsDisplayed()
             compose.onNodeWithText("逐步复盘").performClick()
             assertFalse(model.state.value.highlightsOpen)
@@ -128,12 +128,11 @@ class PlayInteractionTest {
             assertEquals(moves.take(2) + lesson.variation.take(1), model.state.value.boardHistory)
             compose.onNodeWithTag("lesson-step-explanation").assertTextEquals(lesson.steps.first().explanation).assertIsDisplayed()
             lessonScreenshot("lesson-step")
-            compose.onNodeWithText("演示").performClick()
-            waitFor(model) { model.state.value.variationStep >= 2 }
-            compose.onNodeWithText("暂停演示").performClick()
             val paused = model.state.value.variationStep
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
             assertEquals(paused, model.state.value.variationStep)
+            compose.onNodeWithText("下一步").performClick()
+            assertEquals(paused + 1, model.state.value.variationStep)
             compose.onNodeWithText("全文").performClick()
             compose.onNodeWithTag("lesson-plan").assertTextEquals(lesson.plan)
             compose.onNodeWithContentDescription("国际象棋棋盘，白方视角").assertIsDisplayed()

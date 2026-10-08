@@ -7,6 +7,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cn.yibu.chess.core.*
+import cn.yibu.chess.audio.ChessSounds
 import cn.yibu.chess.data.GameRepository
 import cn.yibu.chess.data.PlayPreferences
 import cn.yibu.chess.diagnostics.RuntimeDiagnostics
@@ -65,6 +66,7 @@ data class AppState(
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GameRepository(application)
     private val preferences = PlayPreferences(application)
+    private val sounds = ChessSounds(application)
     private val engine = NativeStockfish(application)
     private val maia = MaiaModel(application)
     private val analyzer = MoveAnalyzer(engine)
@@ -93,6 +95,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 maia.initialize()
                 engine.initialize()
                 mutable.update { it.copy(ready = true, status = "离线引擎已就绪") }
+                if (resumed == null) playFeedback(SoundCue.START)
                 if (!mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
             } catch (e: Exception) { mutable.update { it.copy(error = "引擎启动失败：${e.message}", status = "启动失败") } }
         }
@@ -103,8 +106,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         work?.cancel()
         liveAnalysis?.cancel()
         engine.stop()
+        sounds.stop()
         mutable.update { it.copy(busy = false, analyzing = false, explainingPly = null, kingBreak = null) }
         if (saveSnapshot && snapshot.moves.isNotEmpty()) viewModelScope.launch { persist(snapshot) }
+    }
+    fun playFeedback(cue: SoundCue) { sounds.play(listOf(SoundBeat(cue))) }
+    fun reviewSound(before: List<String>, after: List<String>) { sounds.play(SoundEvents.preview(before, after)) }
+    fun kingBreakStarted(gameId: Long) {
+        if (mutable.value.page == 0 && mutable.value.kingBreak?.gameId == gameId) playFeedback(SoundCue.SHATTER)
     }
     fun clearError() { mutable.update { it.copy(error = null) } }
     fun configureAndStart(settings: PlaySettings) {
@@ -127,6 +136,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     reviewDone = 0, brilliantNotices = emptyList(), status = "新对局已开始") }
                 persist(game)
                 mutable.update { it.copy(busy = false, transitioning = false) }
+                playFeedback(SoundCue.START)
                 if (!game.humanWhite) advance()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { mutable.update { it.copy(busy = false, transitioning = false, error = "新局保存失败：${e.message}") } }
@@ -136,11 +146,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val state = mutable.value
         if (!state.ready || state.busy || state.page != 0 || state.game.finished || !state.humanTurn) return
         try {
-            if (uci !in ChessRules.legal(state.game.moves)) return
+            if (uci !in ChessRules.legal(state.game.moves)) { playFeedback(SoundCue.ILLEGAL); return }
             // Give a new move priority over optional background analysis.
             cancelWork(saveSnapshot = false)
             val game = finishIfNecessary(state.game.copy(moves = state.game.moves + uci))
             mutable.update { it.copy(game = game, cursor = game.moves.size, brilliantNotices = emptyList(), kingBreak = KingBreak.between(state.game, game)) }
+            sounds.play(SoundEvents.transition(state.game, game))
             advance()
         } catch (e: Exception) { mutable.update { it.copy(error = e.message) } }
     }
@@ -177,6 +188,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     if (token != generation || mutable.value.game.id != before.id || mutable.value.page != 0 || mutable.value.game.finished) return@launch
                     val game = withContext(Dispatchers.Default) { finishIfNecessary(before.copy(moves = before.moves + move)) }
                     mutable.update { it.copy(game = game, cursor = game.moves.size, kingBreak = KingBreak.between(before, game)) }
+                    sounds.play(SoundEvents.transition(before, game))
                     persist(game)
                 }
             } catch (e: CancellationException) { throw e }
@@ -227,11 +239,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (token != generation || game.id != mutable.value.game.id) return
         val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + review).sortedBy { it.ply },
             lessons = mutable.value.game.lessons.filterNot { it.ply == ply && it.recommendedMove != review.bestMove })
+        val announceBrilliant = mutable.value.page == 0 && review.ply >= mutable.value.game.moves.size - 1 &&
+            review.grade == Grade.BRILLIANT && !review.provisional && mutable.value.brilliantNotices.none { it.ply == ply }
         mutable.update { state ->
             val notices = state.brilliantNotices.filterNot { it.ply == ply }
             state.copy(game = updated, brilliantNotices = if (state.page == 0 && review.ply >= state.game.moves.size - 1 && review.grade == Grade.BRILLIANT && !review.provisional)
                 (notices + review).sortedBy { it.ply }.takeLast(2) else notices)
         }
+        if (announceBrilliant) playFeedback(SoundCue.BRILLIANT)
         persist(updated)
         // Only a promising sacrifice merits live verification; ordinary grades stay in review.
         if (!deep && review.pointsLost < 0.02 && ChessRules.legal(game.moves.take(ply - 1)).size > 1) {
@@ -257,10 +272,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         cancelWork()
         mutable.update { it.copy(game = HumanOpponent.prepare(game), page = 1, cursor = game.moves.size, variation = emptyList(), lessonOpen = false, kingBreak = null, highlightsOpen = false, highlights = emptyList(), brilliantNotices = emptyList(), error = null) }
     }
-    fun cursor(ply: Int) { mutable.update { it.copy(cursor = ply.coerceIn(0, it.game.moves.size), variation = emptyList(), lessonOpen = false) } }
+    fun cursor(ply: Int) {
+        val before = mutable.value.boardHistory
+        mutable.update { it.copy(cursor = ply.coerceIn(0, it.game.moves.size), variation = emptyList(), lessonOpen = false) }
+        reviewSound(before, mutable.value.boardHistory)
+    }
     fun step(delta: Int) {
         val state = mutable.value
-        if (state.variation.isNotEmpty()) mutable.update { it.copy(variationStep = (it.variationStep + delta).coerceIn(0, it.variation.size)) }
+        if (state.variation.isNotEmpty()) {
+            mutable.update { it.copy(variationStep = (it.variationStep + delta).coerceIn(0, it.variation.size)) }
+            reviewSound(state.boardHistory, mutable.value.boardHistory)
+        }
         else if (!state.lessonOpen) cursor(state.cursor + delta)
     }
     fun showVariation(best: Boolean) {
@@ -300,6 +322,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         variationStep = if (open) 0 else it.variationStep)
                 }
                 persist(mutable.value.game)
+                playFeedback(SoundCue.CONFIRM)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (token == generation) mutable.update { it.copy(error = "本步讲解失败：${e.message}，可再次点击讲解。") } }
             finally { if (token == generation) mutable.update { it.copy(busy = false, explainingPly = null,
@@ -316,7 +339,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun closeLesson() { mutable.update { it.copy(lessonOpen = false, variation = emptyList(), variationStep = 0) } }
     fun lessonSeek(step: Int) {
         if (!mutable.value.lessonOpen) return
+        val before = mutable.value.boardHistory
         mutable.update { it.copy(variationStep = step.coerceIn(0, it.variation.size)) }
+        reviewSound(before, mutable.value.boardHistory)
     }
     fun analyzeSelected() {
         val state = mutable.value
@@ -359,6 +384,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     currentCoroutineContext().ensureActive()
                     if (token == generation && mutable.value.page == 1 && mutable.value.game.id == game.id)
                         mutable.update { it.copy(highlights = highlights, highlightsOpen = highlights.isNotEmpty()) }
+                    playFeedback(SoundCue.CONFIRM)
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { mutable.update { it.copy(error = "复评失败：${e.message}") } }
@@ -369,8 +395,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun resign() {
         if (!mutable.value.ready || mutable.value.transitioning || mutable.value.game.finished) return
         cancelWork()
-        val game = mutable.value.game.copy(finished = true, result = if (mutable.value.game.humanWhite) "0-1" else "1-0", ending = "认输")
+        val before = mutable.value.game
+        val game = before.copy(finished = true, result = if (before.humanWhite) "0-1" else "1-0", ending = "认输")
         mutable.update { it.copy(game = game, status = "对局已结束", kingBreak = KingBreak.between(it.game, game)) }
+        sounds.play(SoundEvents.transition(before, game))
         viewModelScope.launch { persist(game); scheduleLiveAnalysis() }
     }
     fun claimDraw() {
@@ -380,6 +408,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         cancelWork()
         val game = state.game.copy(finished = true, result = "1/2-1/2", ending = reason)
         mutable.update { it.copy(game = game, status = "和棋 · $reason") }
+        sounds.play(SoundEvents.transition(state.game, game))
         viewModelScope.launch { persist(game); scheduleLiveAnalysis() }
     }
     fun delete(game: GameRecord) {
@@ -398,6 +427,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         brilliantNotices = emptyList(), transitioning = false, status = "棋谱已删除")
                     else state.copy(transitioning = false)
                 }
+                playFeedback(SoundCue.DELETE)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { mutable.update { it.copy(transitioning = false, error = "删除失败：${e.message}") } }
         }
@@ -434,10 +464,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }, "导出运行诊断")
     }
     fun pauseForBackground() {
+        sounds.pause()
         mutable.update { it.copy(kingBreak = null) }
         if ((mutable.value.busy || mutable.value.analyzing) && !mutable.value.transitioning) { cancelWork(); mutable.update { it.copy(status = "已暂停计算，棋谱已保存") } }
     }
     fun resumeForeground() {
+        sounds.resume()
         val state = mutable.value
         if (state.ready && state.page == 0 && !state.busy) {
             if (!state.game.finished && !state.humanTurn) advance() else scheduleLiveAnalysis()
@@ -446,5 +478,5 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun resultChinese(game: GameRecord): String = when (game.result) {
         "1-0" -> "白方获胜"; "0-1" -> "黑方获胜"; "1/2-1/2" -> "和棋"; else -> "进行中"
     }
-    override fun onCleared() { work?.cancel(); liveAnalysis?.cancel(); engine.stop(); super.onCleared() }
+    override fun onCleared() { work?.cancel(); liveAnalysis?.cancel(); engine.stop(); sounds.release(); super.onCleared() }
 }

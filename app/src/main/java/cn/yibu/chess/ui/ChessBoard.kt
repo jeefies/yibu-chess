@@ -55,6 +55,7 @@ fun ChessBoard(
     animationKey: Long = 0,
     kingBreak: KingBreak? = null,
     onKingBreakFinished: (Long) -> Unit = {},
+    onKingBreakStarted: (Long) -> Unit = {},
     onSquare: (Int) -> Unit,
 ) {
     // Read the latest turn/readiness/selection callback without restarting a tap gesture.
@@ -107,12 +108,14 @@ fun ChessBoard(
     var breaking by remember(kingBreak?.gameId) { mutableStateOf(false) }
     var fallenKing by remember(flipped, animationKey, fen) { mutableStateOf<Int?>(null) }
     val finishedCallback by rememberUpdatedState(onKingBreakFinished)
+    val startedCallback by rememberUpdatedState(onKingBreakStarted)
     LaunchedEffect(kingBreak?.gameId) {
         val event = kingBreak ?: return@LaunchedEffect
         if (ValueAnimator.areAnimatorsEnabled()) {
             // Let the mating move land first. This one-time end celebration lasts 800 ms.
             if (event.checkmate) delay(260)
             breaking = true
+            startedCallback(event.gameId)
             burst.animateTo(1f, tween(800, easing = androidx.compose.animation.core.LinearEasing))
             fallenKing = event.square
             breaking = false

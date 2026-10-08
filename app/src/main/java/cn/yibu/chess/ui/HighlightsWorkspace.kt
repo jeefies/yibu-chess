@@ -9,52 +9,40 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import cn.yibu.chess.core.*
-import kotlinx.coroutines.delay
 
-/** A short, interruptible tour. Its branches never alter the saved game. */
+/** A manual tour: only an explicit button press changes the board or teaching point. */
 @Composable
 internal fun HighlightsWorkspace(game: GameRecord, highlights: List<ReviewHighlight>, flipped: Boolean,
     onClose: () -> Unit, onFlip: () -> Unit) {
     if (highlights.isEmpty()) return
     var point by remember(game.id, highlights) { mutableIntStateOf(0) }
     var frame by remember(game.id, highlights) { mutableIntStateOf(0) }
-    var playing by remember(game.id, highlights) { mutableStateOf(true) }
     var complete by remember(game.id, highlights) { mutableStateOf(false) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) playing = false }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
+    val feedback = LocalSoundFeedback.current
+    val reviewSound = LocalReviewSound.current
     fun lastFrame(index: Int): Int = highlights[index].lesson?.variation?.take(3)?.size?.let { it + 2 } ?: 1
-    LaunchedEffect(playing, game.id, highlights) {
-        if (!playing) return@LaunchedEffect
-        var index = point
-        var phase = frame
-        while (true) {
-            delay(if (phase == 0 || phase == 2) 1800 else 3400)
-            if (!playing) return@LaunchedEffect
-            if (phase < lastFrame(index)) { phase++; frame = phase }
-            else if (index < highlights.lastIndex) { index++; phase = 0; point = index; frame = 0 }
-            else { complete = true; playing = false; break }
+    fun historyAt(index: Int, stage: Int): List<String> {
+        val chosen = highlights[index]
+        val root = game.moves.take(chosen.ply - 1)
+        return when {
+            stage == 1 -> root + game.moves[chosen.ply - 1]
+            stage >= 3 -> root + chosen.lesson?.variation.orEmpty().take(stage - 2)
+            else -> root
         }
+    }
+    fun seek(index: Int, stage: Int) {
+        reviewSound(historyAt(point, frame), historyAt(index, stage))
+        point = index; frame = stage; complete = false
     }
     val highlight = highlights[point]
     val root = remember(game.moves, highlight.ply) { game.moves.take(highlight.ply - 1) }
     val line = highlight.lesson?.variation?.take(3).orEmpty()
-    val history = when {
-        frame == 1 -> root + game.moves[highlight.ply - 1]
-        frame >= 3 -> root + line.take(frame - 2)
-        else -> root
-    }
+    val history = historyAt(point, frame)
     val fen = remember(history) { ChessRules.board(history).fen }
     val step = highlight.lesson?.steps?.getOrNull(frame - 3)
     val actor = if (highlight.ply % 2 == 1) "白方" else "黑方"
@@ -74,7 +62,7 @@ internal fun HighlightsWorkspace(game: GameRecord, highlights: List<ReviewHighli
                     Text("${point + 1} / ${highlights.size} · ${highlight.title}", color = Muted, fontSize = 13.sp,
                         modifier = Modifier.testTag("highlight-title"))
                 }
-                TextButton(onClick = { playing = false; onClose() }) { Text("逐步复盘") }
+                TextButton(onClick = feedbackClick(onClose)) { Text("逐步复盘") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 highlights.forEachIndexed { index, _ ->
@@ -105,12 +93,21 @@ internal fun HighlightsWorkspace(game: GameRecord, highlights: List<ReviewHighli
                 if (frame >= 2) Text("这是引擎参考路线；对手改变走法时，需要重新判断。", color = Muted, fontSize = 11.sp)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { playing = false; complete = false; point--; frame = 0 }, enabled = point > 0) { Text("上个点") }
-                FilledTonalButton(onClick = {
-                    if (complete) { point = 0; frame = 0; complete = false; playing = true }
-                    else playing = !playing
-                }) { Text(if (complete) "再看一次" else if (playing) "暂停" else "继续播放") }
-                TextButton(onClick = { playing = false; complete = false; point++; frame = 0 }, enabled = point < highlights.lastIndex) { Text("下个点") }
+                TextButton(onClick = feedbackClick { seek(point - 1, 0) }, enabled = point > 0) { Text("上个点", fontSize = 12.sp) }
+                TextButton(onClick = feedbackClick {
+                    if (frame > 0) seek(point, frame - 1) else seek(point - 1, lastFrame(point - 1))
+                }, enabled = point > 0 || frame > 0) { Text("上一步", fontSize = 12.sp) }
+                FilledTonalButton(onClick = feedbackClick {
+                    when {
+                        complete -> seek(0, 0)
+                        frame < lastFrame(point) -> seek(point, frame + 1)
+                        point < highlights.lastIndex -> seek(point + 1, 0)
+                        else -> { complete = true; feedback(SoundCue.CONFIRM) }
+                    }
+                }, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                    Text(if (complete) "重看" else if (point == highlights.lastIndex && frame == lastFrame(point)) "完成" else "下一步", fontSize = 13.sp)
+                }
+                TextButton(onClick = feedbackClick { seek(point + 1, 0) }, enabled = point < highlights.lastIndex) { Text("下个点", fontSize = 12.sp) }
             }
         }
     }

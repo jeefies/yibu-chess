@@ -112,7 +112,7 @@ internal fun PrimaryAction(text: String, onClick: () -> Unit, modifier: Modifier
     // Occasional actions only. Compose respects the system animator duration scale, including zero.
     val scale by animateFloatAsState(if (pressed && enabled) .97f else 1f,
         tween(if (pressed) 120 else 80, easing = CubicBezierEasing(.23f, 1f, .32f, 1f)), label = "action press")
-    Button(onClick, modifier.graphicsLayer { scaleX = scale; scaleY = scale }, enabled = enabled,
+    Button(feedbackClick(onClick), modifier.graphicsLayer { scaleX = scale; scaleY = scale }, enabled = enabled,
         shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 13.dp), interactionSource = interactions) {
         if (icon != null) { LineIcon(icon, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)) }
         Text(text)
@@ -121,7 +121,7 @@ internal fun PrimaryAction(text: String, onClick: () -> Unit, modifier: Modifier
 
 @Composable
 internal fun IconAction(icon: ChessIcon, label: String, onClick: () -> Unit, enabled: Boolean = true) {
-    IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).semantics { contentDescription = label }) {
+    IconButton(feedbackClick(onClick), enabled = enabled, modifier = Modifier.size(48.dp).semantics { contentDescription = label }) {
         LineIcon(icon, color = if (enabled) Muted else Muted.copy(alpha = .4f))
     }
 }
