@@ -8,7 +8,7 @@ class RemoteAnalysisTest {
     private fun review(canCompare: Boolean = true, playedDepth: Int = 22, commonDepth: Int = 22): MoveReview = runBlocking {
         val service = object : StockfishService {
             override suspend fun evaluate(history: List<String>, profile: String, multiPv: Int): RemoteEvaluation = error("unused")
-            override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean) = RemoteMoveAnalysis(
+            override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String?) = RemoteMoveAnalysis(
                 best = Evaluation(22, cp = 40, pv = listOf("e2e4")),
                 played = Evaluation(playedDepth, cp = 30, pv = listOf(playedMove)),
                 canCompare = canCompare, commonDepth = commonDepth)

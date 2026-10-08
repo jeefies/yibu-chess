@@ -243,7 +243,8 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
                     }
                     if (missing.isEmpty()) break
                     val nextPly = missing.find { it >= current.game.moves.size - 1 } ?: missing.first()
-                    analyzePly(nextPly, deep = true, token)
+                    val profile = current.settings.analysisBudget.profileName
+                    analyzePly(nextPly, deep = true, token, profileOverride = profile)
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -264,7 +265,7 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
             }
         }
     }
-    private suspend fun analyzePly(ply: Int, deep: Boolean, token: Int) {
+    private suspend fun analyzePly(ply: Int, deep: Boolean, token: Int, profileOverride: String? = null) {
         if (token != generation) return
         check(mutable.value.settings.stockfishToken.isNotBlank()) { "请在对局设置中填写朋友提供的 Access Token" }
         val game = mutable.value.game
@@ -279,7 +280,7 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
             it.copy(status = status)
         }
         val scoringElo = scoringElo(game, ply)
-        val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
+        val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo, profileOverride) }
         currentCoroutineContext().ensureActive()
         val latest = mutable.value.game
         val previous = game.reviews.find { it.ply == ply }

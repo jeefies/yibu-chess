@@ -164,7 +164,7 @@ data class RemoteMoveAnalysis(
 
 interface StockfishService {
     suspend fun evaluate(history: List<String>, profile: String = "standard", multiPv: Int = 1): RemoteEvaluation
-    suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis
+    suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String? = null): RemoteMoveAnalysis
     fun stop()
 }
 
@@ -175,7 +175,7 @@ class EngineToServiceAdapter(private val engine: ChessEngine) : StockfishService
         return RemoteEvaluation(res.best.depth, res.bestMove, res.best, res.lines, "Stockfish 17.1")
     }
 
-    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis {
+    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String?): RemoteMoveAnalysis {
         val legalSize = ChessRules.legal(history).size
         val request = SearchRequest(
             timeMs = if (deep) 6000 else 1500,

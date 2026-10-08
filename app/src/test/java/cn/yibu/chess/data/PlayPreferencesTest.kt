@@ -19,9 +19,10 @@ class PlayPreferencesTest {
         val chosen = PlaySettings(Difficulty.MATCHED, ColorPreference.BLACK)
         preferences.save(chosen)
         assertEquals(chosen, PlayPreferences(context).read())
-        preferences.save(PlaySettings(Difficulty.STRONG, ColorPreference.WHITE, "secret-token-xyz"))
+        preferences.save(PlaySettings(Difficulty.STRONG, ColorPreference.WHITE, "secret-token-xyz", AnalysisBudget.DEEP))
         val readBack = PlayPreferences(context).read()
         assertEquals(Difficulty.STRONG, readBack.mode)
         assertEquals("secret-token-xyz", readBack.stockfishToken)
+        assertEquals(AnalysisBudget.DEEP, readBack.analysisBudget)
     }
 }

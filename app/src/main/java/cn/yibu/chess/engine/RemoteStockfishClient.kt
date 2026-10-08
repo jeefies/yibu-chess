@@ -118,9 +118,10 @@ class RemoteStockfishClient(
         return RemoteEvaluation(best.depth, best.pv.first(), best, candidates, engineName)
     }
 
-    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis {
+    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String?): RemoteMoveAnalysis {
         require(playedMove in ChessRules.legal(history)) { "待分析走法非法" }
-        val dto = AnalyzeMoveReqDto(PositionDto(moves = history), playedMove, if (deep) "deep" else "fast")
+        val profile = profileOverride ?: if (deep) "deep" else "fast"
+        val dto = AnalyzeMoveReqDto(PositionDto(moves = history), playedMove, profile)
         val request = request("analyze-move").post(json.encodeToString(dto).toRequestBody(jsonMediaType)).build()
         val resp = json.decodeFromString<AnalyzeMoveRespDto>(executeRequest(request))
         val bestDto = requireNotNull(resp.best) { "最佳走法尚未分析完成，请重试" }

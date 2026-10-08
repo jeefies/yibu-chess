@@ -663,6 +663,27 @@ internal fun NewGameSettingsEditor(
                 )
             }
         }
+        Spacer(Modifier.height(10.dp))
+        Text("后台搜索预算", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text("对弈时后台静默计算所用的引擎时间预算", fontSize = 11.sp, color = Muted, modifier = Modifier.padding(bottom = 4.dp))
+        AnalysisBudget.entries.forEach { option ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = feedbackClick { onChange(settings.copy(analysisBudget = option)) })
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = settings.analysisBudget == option,
+                    onClick = feedbackClick { onChange(settings.copy(analysisBudget = option)) }
+                )
+                Column {
+                    Text(option.title, fontSize = 14.sp)
+                    Text(option.description, fontSize = 11.sp, color = Muted)
+                }
+            }
+        }
         Text("选择与口令会保存在本机；当前对局会保留在棋谱中。", fontSize = 11.sp, color = Muted, modifier = Modifier.padding(top = 8.dp))
     }
 }
