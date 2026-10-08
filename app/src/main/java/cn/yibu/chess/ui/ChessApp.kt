@@ -207,7 +207,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("拟人对手：Maia-3 5M\n用人类棋谱训练，按走法概率选择，近期重复开局会适度减权。模型与 Stockfish 17.1 随安装包提供，全程离线。最强对手继续使用 Stockfish。", fontSize = 13.sp)
                 Text("新局默认随机白黑，点击即开始。可在对局设置里主动选择，选择会记住。对弈时只提示经过深度验证的 !!，附上弃子原因和参考变化；完整评级与推荐走法在复盘查看。", fontSize = 13.sp)
-                Text("对手落子前默认思考约2–4秒，搜索时间计入等待。复盘点击“讲解这一步”，离线深入分析当前一步的走法目的、关键应对与后续变化，生成后保存在棋谱中。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
+                Text("对手落子前默认思考约1–2秒，搜索时间计入等待。复盘点击“讲解这一步”，离线深入分析当前一步的走法目的、关键应对与后续变化，生成后保存在棋谱中。深度分析使用最多6线程与256 MiB缓存加速。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
                 Text("个人 Elo 从500开始，与 Chess.com 分数独立。匹配局的胜负与和棋按 Elo 公式结算；最强局不计分。前10盘调整较快。删除棋谱不会撤销分数；旧版对局不补计分。", fontSize = 13.sp)
                 Text("采用 Chess.com 公开的预期得分损失阈值：\n最佳：引擎最佳或等值走法\n小于2个百分点：优秀\n2–5：不错 · 5–10：?!\n10–20：? · 20以上：??\n! 是关键好棋，!! 是深入验证的合理弃子。", fontSize = 13.sp)
                 Text("Chess.com 完整算法未公开。这里用引擎分值和棋力估算预期得分。Maia 使用另一套棋谱分数范围，个人 Elo 与模型强度的对应仍是近似值，不能等同平台真人分数。", color = Muted, fontSize = 12.sp)

@@ -10,6 +10,16 @@ public final class NativeBridge {
     }
     public static void main(String[] args) throws Exception {
         initialize(args[0]);
+        if (args.length > 1 && args[1].equals("--review-performance")) {
+            String root = search("", 750, 12, 3, 20, 6, 256, "");
+            check(root.contains("multipv 3") && root.contains("wdl "), "six-thread review failed");
+            String forced = search("", 400, 10, 1, 20, 6, 256, "a2a3");
+            check(forced.contains("bestmove a2a3"), "high-resource played-move search failed");
+            String quick = search("e2e4", 250, 8, 1, 20, 2, 128, "");
+            check(quick.contains("wdl ") && quick.contains("bestmove "), "could not restore ordinary budget");
+            System.out.println("Review performance probe passed: six threads / 256 MiB, root and restricted searches, restore two threads / 128 MiB.");
+            return;
+        }
         String root = search("", 500, 10, 3, 20, 1, 64, "");
         check(root.contains("multipv 3") && root.contains("wdl "), "missing MultiPV or WDL");
         check(root.matches("(?s).*bestmove [a-h][1-8][a-h][1-8].*"), "missing legal bestmove");

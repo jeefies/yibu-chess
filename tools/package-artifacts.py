@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a verified installable build, reproducible source and separate test key."""
+"""Package a signed release and explicitly selected test evidence, source and separate key."""
 from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
@@ -8,8 +8,13 @@ import re
 import shutil
 import zipfile
 import xml.etree.ElementTree as ET
+import argparse
 
 root = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--test-report", action="append", required=True,
+                    help="JUnit XML report from this release's focused checks; repeat for each report")
+args = parser.parse_args()
 version = re.search(r'versionName\s*=\s*"([^"]+)"', (root / "app/build.gradle.kts").read_text()).group(1)
 out = root / "artifacts"
 out.mkdir(exist_ok=True)
@@ -28,13 +33,22 @@ with zipfile.ZipFile(out / "yibu-personal-test-signing.zip", "w", zipfile.ZIP_DE
     archive.writestr("README.txt", "个人测试签名备份\n后续构建恢复到项目 signing/personal.jks。\nalias: yibu\nstore/key password: yibu-personal-test\n保持同一签名才能覆盖安装；提高 versionCode。\n此文件不放入 Git 仓库。\n")
 files = [out / f"yibu-{version}-arm64.apk", out / f"yibu-{version}-source.zip", out / "yibu-personal-test-signing.zip"]
 def test_status(path):
-    if not path.exists(): return "not run in this workspace"
+    assert path.is_file(), f"Missing selected test report: {path}"
     suite = ET.parse(path).getroot()
     assert int(suite.get("failures", 0)) + int(suite.get("errors", 0)) == 0, f"Tests failed: {path}"
     assert int(suite.get("skipped", 0)) == 0, f"Tests skipped: {path}"
-    return f"{suite.get('tests')} passed"
-lint_issues = ET.parse(root / "app/build/reports/lint-results-debug.xml").getroot().findall("issue")
-assert not any(issue.get("severity") in {"Error", "Fatal"} for issue in lint_issues), "Android lint reported errors"
+    assert int(suite.get("tests", 0)) > 0, f"No selected tests ran: {path}"
+    return {"passed": int(suite.get("tests")),
+            "cases": [case.get("name") for case in suite.findall("testcase")]}
+selected_reports = [root / p for p in args.test_report]
+validation = {
+    "scope": "only changed features and directly affected behavior",
+    "selected_test_suites": {str(p.relative_to(root)): test_status(p) for p in selected_reports},
+    "full_regression": "not run", "android_lint": "not run",
+    "release_apk": "assembled with existing personal signing configuration",
+    "upload_verification": "not performed",
+    "xiaomi_17_pro": "not run on a physical device in Cloud"
+}
 metadata = {
     "built_at": datetime.now(timezone.utc).isoformat(),
     "version": version, "application_id": "cn.yibu.chess", "abi": "arm64-v8a",
@@ -43,28 +57,7 @@ metadata = {
     "human_model": json.loads((root / "app/src/main/assets/models/maia3-metadata.json").read_text()),
     "certificate_sha256": "ac84a14d5fe6aa75a8550e375c24221048c9abc9b85d64fe02e1e4e58be1df03",
     "files": {p.name: {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files},
-    "validation": {
-        "core_jvm_tests": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.CoreTest.xml"),
-        "rating_and_elo_jvm_tests": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.RatingAndEloTest.xml"),
-        "human_policy_and_upstream_encoding": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.HumanPolicyTest.xml"),
-        "coaching_legal_lines_pacing_special_move_transitions": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.CoachingAndMotionTest.xml"),
-        "rating_storage_and_migration_robolectric": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.data.GameRepositoryTest.xml"),
-        "android_startup_robolectric": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.StartupTest.xml"),
-        "actual_onnx_model_inference": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.engine.MaiaModelTest.xml"),
-        "saved_color_preferences": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.data.PlayPreferencesTest.xml"),
-        "live_annotations_and_no_prompt_ui": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessScreenTest.xml"),
-        "runtime_exit_diagnostics": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.diagnostics.RuntimeDiagnosticsTest.xml"),
-        "board_turn_and_readiness_taps": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessBoardTest.xml"),
-        "piece_motion_retargeting_and_reduced_motion": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessMotionTest.xml"),
-        "actual_multi_turn_taps_and_background_recovery": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.PlayInteractionTest.xml"),
-        "native_compose_phone_layouts_and_screenshots": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.UiLayoutTest.xml"),
-        "native_host_jni_probe": "passed",
-        "android_lint": {"errors": 0, "warnings": sum(issue.get("severity") == "Warning" for issue in lint_issues)},
-        "apk_signature": "v2 verified", "apk_zip_16kb_alignment": "passed",
-        "native_elf_16kb_alignment": "passed for all bundled .so files",
-        "android_instrumentation": "test APK built; not executed on a device",
-        "xiaomi_17_pro": "not yet tested on the actual phone"
-    }
+    "validation": validation
 }
 (out / "build-manifest.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
 (out / "SHA256SUMS.txt").write_text("".join(f"{metadata['files'][p.name]['sha256']}  {p.name}\n" for p in files))

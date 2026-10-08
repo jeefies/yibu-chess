@@ -1,6 +1,15 @@
 name: Android APK
 on:
   workflow_dispatch:
+    inputs:
+      core_test_filter:
+        description: 'Only the core tests affected by this change (blank: build only)'
+        required: false
+        type: string
+      app_test_filter:
+        description: 'Only the Android JVM tests affected by this change (blank: skip)'
+        required: false
+        type: string
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -22,8 +31,18 @@ jobs:
             exit 1
           fi
           printf '%s' "$YIBU_KEYSTORE_BASE64" | base64 --decode > signing/personal.jks
-      - name: Test and assemble
-        run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleRelease
+      - name: Selected core tests
+        if: inputs.core_test_filter != ''
+        env:
+          TASK_TEST_FILTER: ${{ inputs.core_test_filter }}
+        run: ./gradlew :core:test --tests "$TASK_TEST_FILTER"
+      - name: Selected Android JVM tests
+        if: inputs.app_test_filter != ''
+        env:
+          TASK_TEST_FILTER: ${{ inputs.app_test_filter }}
+        run: ./gradlew :app:testDebugUnitTest --tests "$TASK_TEST_FILTER"
+      - name: Assemble signed release
+        run: ./gradlew :app:assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: yibu-arm64-apk

@@ -26,7 +26,7 @@ class MoveAnalyzer(private val engine: ChessEngine) {
         val legal = ChessRules.legal(history)
         require(uci in legal)
         val request = SearchRequest(timeMs = if (deep) 6000 else 1500, depth = if (deep) 22 else 18,
-            multiPv = minOf(3, legal.size), threads = 2, hashMb = 128)
+            multiPv = minOf(3, legal.size), threads = if (deep) 6 else 2, hashMb = if (deep) 256 else 128)
         var root = engine.search(history, request)
         var best = root.best
         var actual = root.lines.find { it.pv.firstOrNull() == uci }

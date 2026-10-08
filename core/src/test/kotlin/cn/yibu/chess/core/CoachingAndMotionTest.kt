@@ -63,9 +63,10 @@ class CoachingAndMotionTest {
     }
     @Test fun pacingCountsSearchTimeAndNeverAddsDelayToASlowSearch() {
         val random = Random(42)
-        repeat(100) { assertTrue(OpponentPacing.targetMs(random) in 2_000..4_000) }
-        assertEquals(2_500L, OpponentPacing.remainingMs(3_000, 500))
-        assertEquals(0L, OpponentPacing.remainingMs(3_000, 6_000))
+        repeat(100) { assertTrue(OpponentPacing.targetMs(random) in 1_000..2_000) }
+        assertEquals(1_000L, OpponentPacing.remainingMs(1_500, 500))
+        assertEquals(0L, OpponentPacing.remainingMs(1_500, 1_500))
+        assertEquals(0L, OpponentPacing.remainingMs(1_500, 3_000))
     }
     private fun transition(history: List<String>, move: String, reverse: Boolean = false): BoardTransition {
         val before = ChessRules.board(history).fen

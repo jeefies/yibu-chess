@@ -64,9 +64,10 @@ class NativeStockfish(private val context: Context) : ChessEngine {
         check(legal.isNotEmpty()) { "当前局面没有合法走法" }
         check(request.restricted.all { it in legal }) { "非法的指定走法" }
         val multiPv = minOf(request.multiPv, if (request.restricted.isEmpty()) legal.size else request.restricted.size)
+        val availableThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 6)
         val output = withContext(Dispatchers.IO) {
             NativeBridge.search(history.joinToString(" "), request.timeMs.coerceIn(50, 10000), request.depth,
-                multiPv, request.skill.coerceIn(0, 20), request.threads.coerceIn(1, 2), request.hashMb.coerceIn(16, 128), request.restricted.joinToString(" "))
+                multiPv, request.skill.coerceIn(0, 20), request.threads.coerceIn(1, availableThreads), request.hashMb.coerceIn(16, 256), request.restricted.joinToString(" "))
         }
         currentCoroutineContext().ensureActive()
         UciParser.parse(output, multiPv)

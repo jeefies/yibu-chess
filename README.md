@@ -9,10 +9,10 @@
 - 个人练习 Elo 从 500 起步，匹配局结束后按胜负或和棋结算；最强局不计分。新匹配局的对手分数等于开局时的个人分数。
 - 棋谱支持删除，删除不撤销已经结算的 Elo；后台分析不能重新保存已删除的棋谱。
 - 点击棋子，再点击合法落点；支持王车易位、吃过路兵及后/车/象/马升变。落子使用 250ms 原生图层平移与吃子淡出，快速复盘可从当前位置转向，系统关闭动画时立即落位。
-- AI 落子前等待随机 2–4 秒，实际搜索时间包含在这段时间内；搜索更久时不再额外等待。切页、切后台、新局与删除都会取消旧回合的等待。
+- AI 落子前等待随机 1–2 秒，实际搜索时间包含在这段时间内；搜索更久时不再额外等待。切页、切后台、新局与删除都会取消旧回合的等待。
 - 对弈界面隐藏普通评级、分值与最佳走法。仅对双方经深度验证的 !! 显示弃子原因和后续参考变化；提示保留到玩家下一次落子。
 - Stockfish 在后台保存逐步分析，对弃子候选自动追加深入验证。完整评级、最佳走法和曲线在复盘查看。
-- 复盘：逐步导航、局势曲线、完整走棋列表、推荐/实战变化跟走、单步/整盘深度复评。每一步可点击“讲解这一步”，只为当前一步生成原因、对手关键应对和后续计划，缓存到棋谱；“跟走这条思路”可在棋盘上逐着查看。
+- 复盘：逐步导航、局势曲线、完整走棋列表、推荐/实战变化跟走、单步/整盘深度复评。深度分析使用最多 6 线程、256 MiB Hash 提速。每一步可点击“讲解这一步”，只为当前一步生成原因、对手关键应对和后续计划，缓存到棋谱；“跟走这条思路”可在棋盘上逐着查看。
 - Room 自动保存对局和分析。切到后台停止当前计算，回前台可继续机器人回合；整盘分析按步保存。
 - 标准将杀/逼和、保守死局子力判断、五次重复/75 回合自动和棋；三次重复/50 回合允许申请和棋。
 - 导出 PGN、包含完整分析的 JSON、运行诊断与开源许可证；应用无 INTERNET 权限。
@@ -23,11 +23,11 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 ## 在手机上安装
 
-[下载 ARM64 APK（约 84 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.5.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.5.0-arm64.apk)
+[下载 ARM64 APK（约 84 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.5.1-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.5.1-arm64.apk)
 
 该仓库为私有仓库，请先在手机浏览器登录 `well49112`。安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
 
-1. 下载 `yibu-0.5.0-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
+1. 下载 `yibu-0.5.1-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
 2. 首次启动会校验 Stockfish 与 Maia 权重并复制到应用私有目录，稍等离线引擎就绪。
 3. 首次使用默认匹配 Elo 500、随机执棋，直接进入对局。“新局”每盘重新抽颜色；“对局设置”可主动选匹配或最强及颜色。旧版未完成匹配局会改用 Maia 继续，保留原有计分资格。
 4. 断网/飞行模式仍可对弈与复盘。
@@ -35,6 +35,12 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 6. 同一签名、同一包名且更高版本号的 APK 可以覆盖升级并保留棋谱。卸载会删除本地棋谱和个人分数，请先导出需要保留的 PGN/JSON。
 
 最低 Android 8.0 (API 26)，目标 SDK 35，原生库包含 16 KB ELF 对齐，以压缩形式随 APK 打包并由 Android 安装时解压。首版仅打包 arm64，不适用于 32 位设备。
+
+## 0.5.1 更短等待与深度复盘加速
+
+模拟思考改为随机 1–2 秒，计算时间计入等待；最强对手原有约 3 秒的实际搜索不会再叠加模拟等待。深度复评与单步讲解从 2 线程 / 128 MiB Hash 提升到最多 6 线程 / 256 MiB，线程数不超过设备可用处理器数。原生接口同步放开资源上限；目标深度 22、单次最多 6 秒不变，指定实战走法和同深度补搜沿用较高预算。普通后台初评继续使用 2 线程 / 128 MiB。提速取决于局面和设备，每一步可能需要多次搜索。
+
+版本为 0.5.1，versionCode 为 9，沿用原签名。按用户要求，今后发布只验证本次改动相关行为，不跑全量测试或全量 lint；GitHub 上传成功后直接提供 APK 下载页面，不再重新下载校验。发布约定见 [AGENTS.md](AGENTS.md)。
 
 ## 0.5.0 思考节奏、单步讲解与落子动画
 
@@ -77,7 +83,8 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 ```bash
 chmod +x gradlew tools/*.sh
 tools/setup-cloud.sh
-tools/with-env.sh ./gradlew :core:test :app:testDebugUnitTest :app:assembleRelease
+# 将过滤器换成本次修改相关的测试；不运行全量回归。
+tools/with-env.sh ./gradlew :core:test --tests 'cn.yibu.chess.core.AnalysisPerformanceTest' --tests 'cn.yibu.chess.core.CoachingAndMotionTest.pacingCountsSearchTimeAndNeverAddsDelayToASlowSearch' :app:assembleRelease
 ```
 
 默认安装在 `/workspace/android-toolchain`，可用 `ANDROID_TOOLCHAIN_DIR` 指定其他目录。初始化脚本重复运行会复用已校验文件。JDK/Gradle/命令行工具下载均锁定 SHA-256。
@@ -90,7 +97,9 @@ Cloud setup 的一次 `export` 不一定持续到任务阶段，因此构建推�
 
 私有 GitHub 仓库：`https://github.com/well49112/yibu-chess`。手机浏览器登录该账号后，通过本页 APK 链接或 Releases 中提供的 APK 分支链接下载；工作区绝对路径不能直接作为手机的下载附件。
 
-附带的 `.github/workflows/android.yml` 支持手动构建 APK。先配置下文的签名 Secret，再到 Actions → Android APK → Run workflow 启动；每次构建会保存可下载产物。源码推送不会自动触发尚未配置签名的构建。
+附带的 `.github/workflows/android.yml` 支持手动构建 APK。先配置下文的签名 Secret，再到 Actions → Android APK → Run workflow 启动；可填写与本次改动相关的 core / Android 测试过滤器，留空则只构建，避免默认执行全量测试。每次构建会保存可下载产物。源码推送不会自动触发尚未配置签名的构建。
+
+打包时显式传入本次运行的测试报告，例如 `python3 tools/package-artifacts.py --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.AnalysisPerformanceTest.xml --test-report core/build/test-results/test/TEST-cn.yibu.chess.core.CoachingAndMotionTest.xml`。构建清单只记录这些报告中的用例，不会把旧版全量测试或 lint 结果当成本版验证。
 
 ## Maia 模型与复现
 
