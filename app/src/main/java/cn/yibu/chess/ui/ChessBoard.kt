@@ -2,12 +2,20 @@ package cn.yibu.chess.ui
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.animation.ValueAnimator
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -19,11 +27,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import cn.yibu.chess.core.ChessRules
+import cn.yibu.chess.core.BoardTransition
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -36,6 +48,7 @@ fun ChessBoard(
     targets: Set<Int>,
     lastMove: String?,
     arrow: String? = null,
+    animationKey: Long = 0,
     onSquare: (Int) -> Unit,
 ) {
     // Read the latest turn/readiness/selection callback without restarting a tap gesture.
@@ -45,8 +58,47 @@ fun ChessBoard(
         lastMove?.takeIf { it.length >= 4 }?.let { setOf(ChessRules.squareIndex(it.take(2)), ChessRules.squareIndex(it.substring(2, 4))) }.orEmpty()
     }
     val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.NORMAL); textAlign = Paint.Align.CENTER } }
-    val glyphs = mapOf('k' to "♚", 'q' to "♛", 'r' to "♜", 'b' to "♝", 'n' to "♞", 'p' to "♟")
-    Canvas(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+    val progress = remember(flipped, animationKey) { Animatable(1f) }
+    var previousFen by remember(flipped, animationKey) { mutableStateOf(fen) }
+    var scene by remember(flipped, animationKey) { mutableStateOf<PieceScene?>(null) }
+    var completedScene by remember(flipped, animationKey) { mutableStateOf<PieceScene?>(null) }
+    // Prepare the first visual frame synchronously: an effect-only plan would show
+    // the destination for one frame before it could publish the moving pieces.
+    val plannedScene = remember(fen, flipped, animationKey) {
+        val transition = if (ValueAnimator.areAnimatorsEnabled()) BoardTransition.between(previousFen, fen) else null
+        transition?.let {
+            val oldScene = scene
+            val fraction = progress.value
+            fun position(square: Int): Offset {
+                val moving = oldScene?.motions?.find { motion -> motion.to == square }
+                return moving?.let { motion -> motion.start + (boardPoint(square, flipped) - motion.start) * fraction }
+                    ?: boardPoint(square, flipped)
+            }
+            val moving = it.motions.map { motion -> FlyingPiece(motion.to, motion.piece, position(motion.from)) }.toMutableList()
+            // A quick next step keeps any previous piece in flight from its current position.
+            oldScene?.motions?.filter { old -> moving.none { motion -> motion.to == old.to } &&
+                it.motions.none { motion -> motion.from == old.to } && pieces[old.to] == old.piece }?.forEach { old ->
+                moving += old.copy(start = position(old.to))
+            }
+            PieceScene(fen, moving, it.fades)
+        }
+    }
+    LaunchedEffect(fen, plannedScene, flipped, animationKey) {
+        previousFen = fen
+        if (plannedScene == null) {
+            scene = null
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
+        progress.snapTo(0f)
+        scene = plannedScene
+        progress.animateTo(1f, tween(250, easing = CubicBezierEasing(.77f, 0f, .175f, 1f)))
+        completedScene = plannedScene
+        scene = null
+    }
+    val activeScene = plannedScene?.takeUnless { it === completedScene }
+    val hidden = activeScene?.let { it.motions.map { motion -> motion.to }.toSet() + it.fades.filter { fading -> fading.appearing }.map { fading -> fading.square } }.orEmpty()
+    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))
         .semantics { contentDescription = "国际象棋棋盘，${if (flipped) "黑方" else "白方"}视角" }
         .pointerInput(flipped, fen) {
             detectTapGestures { position ->
@@ -55,6 +107,7 @@ fun ChessBoard(
                 currentOnSquare(if (flipped) row * 8 + 7 - col else (7 - row) * 8 + col)
             }
         }) {
+      Canvas(Modifier.matchParentSize()) {
         val cell = size.width / 8
         fun center(index: Int): Offset {
             val col = if (flipped) 7 - index % 8 else index % 8
@@ -70,21 +123,7 @@ fun ChessBoard(
             if (index == selected) drawRect(Color(0xFFE6C463).copy(alpha = .80f), topLeft, Size(cell, cell))
             val piece = pieces[index]
             val c = center(index)
-            if (piece != ' ') {
-                paint.textSize = cell * .84f
-                paint.color = if (piece.isUpperCase()) android.graphics.Color.rgb(252, 250, 236) else android.graphics.Color.rgb(28, 36, 28)
-                paint.style = Paint.Style.FILL
-                val baseline = c.y - (paint.ascent() + paint.descent()) / 2 - cell * .02f
-                if (piece.isUpperCase()) {
-                    paint.style = Paint.Style.STROKE
-                    paint.strokeWidth = cell * .035f
-                    paint.color = android.graphics.Color.rgb(39, 49, 36)
-                    drawContext.canvas.nativeCanvas.drawText(glyphs.getValue(piece.lowercaseChar()), c.x, baseline, paint)
-                    paint.style = Paint.Style.FILL
-                    paint.color = android.graphics.Color.rgb(252, 250, 236)
-                }
-                drawContext.canvas.nativeCanvas.drawText(glyphs.getValue(piece.lowercaseChar()), c.x, baseline, paint)
-            }
+            if (piece != ' ' && index !in hidden) drawChessPiece(piece, c, cell, paint)
             if (index in targets) {
                 if (piece == ' ') drawCircle(Color(0xFF263D28).copy(alpha = .38f), cell * .12f, c)
                 else drawCircle(Color(0xFFE8C858), cell * .43f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(cell * .07f))
@@ -109,5 +148,49 @@ fun ChessBoard(
             }
             drawPath(head, Color(0xFFF2B83C).copy(alpha = .92f))
         }
+      }
+      activeScene?.fades?.forEach { fading ->
+          Canvas(Modifier.matchParentSize().graphicsLayer {
+              val fraction = if (scene === activeScene) progress.value else 0f
+              alpha = if (fading.appearing) fraction else 1f - fraction
+          }) {
+              val cell = size.width / 8
+              drawChessPiece(fading.piece, (boardPoint(fading.square, flipped) + Offset(.5f, .5f)) * cell, cell, paint)
+          }
+      }
+      activeScene?.motions?.forEach { moving ->
+          Canvas(Modifier.matchParentSize().graphicsLayer {
+              val cell = size.width / 8f
+              val destination = boardPoint(moving.to, flipped)
+              val fraction = if (scene === activeScene) progress.value else 0f
+              val distance = (moving.start - destination) * (1f - fraction) * cell
+              translationX = distance.x
+              translationY = distance.y
+          }.testTag("piece-motion-${ChessRules.squareName(moving.to)}")) {
+              val cell = size.width / 8
+              drawChessPiece(moving.piece, (boardPoint(moving.to, flipped) + Offset(.5f, .5f)) * cell, cell, paint)
+          }
+      }
     }
+}
+
+private data class FlyingPiece(val to: Int, val piece: Char, val start: Offset)
+private data class PieceScene(val fen: String, val motions: List<FlyingPiece>, val fades: List<cn.yibu.chess.core.FadingPiece>)
+private fun boardPoint(index: Int, flipped: Boolean): Offset = Offset(
+    (if (flipped) 7 - index % 8 else index % 8).toFloat(),
+    (if (flipped) index / 8 else 7 - index / 8).toFloat(),
+)
+private val glyphs = mapOf('k' to "♚", 'q' to "♛", 'r' to "♜", 'b' to "♝", 'n' to "♞", 'p' to "♟")
+private fun DrawScope.drawChessPiece(piece: Char, center: Offset, cell: Float, paint: Paint) {
+    paint.textSize = cell * .84f
+    val baseline = center.y - (paint.ascent() + paint.descent()) / 2 - cell * .02f
+    if (piece.isUpperCase()) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = cell * .035f
+        paint.color = android.graphics.Color.rgb(39, 49, 36)
+        drawContext.canvas.nativeCanvas.drawText(glyphs.getValue(piece.lowercaseChar()), center.x, baseline, paint)
+    }
+    paint.style = Paint.Style.FILL
+    paint.color = if (piece.isUpperCase()) android.graphics.Color.rgb(252, 250, 236) else android.graphics.Color.rgb(28, 36, 28)
+    drawContext.canvas.nativeCanvas.drawText(glyphs.getValue(piece.lowercaseChar()), center.x, baseline, paint)
 }

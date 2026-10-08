@@ -87,11 +87,24 @@ data class GameRecord(
     val opponentEngine: String = "Stockfish 17.1",
     val modelElo: Int? = null,
     val policySeed: Long = 0,
+    val lessons: List<MoveLesson> = emptyList(),
 ) {
     val mode: Difficulty get() = if (difficulty == Difficulty.STRONG) Difficulty.STRONG else Difficulty.MATCHED
     val opponentLabel: String get() = if (mode == Difficulty.STRONG) "最强 · 不计 Elo"
         else "匹配对手 · Elo ${opponentElo ?: 500}${if (rated) "" else " · 不计分"}"
 }
+
+/** Generated on request from one legal, deeply searched engine variation. */
+@Serializable
+data class MoveLesson(
+    val ply: Int,
+    val recommendedMove: String,
+    val why: String,
+    val plan: String,
+    val variation: List<String>,
+    val depth: Int,
+    val algorithmVersion: Int = 1,
+)
 
 private object GameIds {
     private val last = java.util.concurrent.atomic.AtomicLong()

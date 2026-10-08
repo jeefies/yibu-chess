@@ -112,6 +112,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                     ChessBoard(fen, flipped = !state.game.humanWhite xor flipOverride,
                                         selected = selected, targets = if (state.page == 0 && !state.busy) targets else emptySet(),
                                         lastMove = state.boardHistory.lastOrNull(),
+                                        animationKey = state.game.id,
                                         arrow = if (state.variation.isNotEmpty() && state.variationStep == 0) state.variation.first() else null) { square ->
                                         if (state.page == 0 && state.ready && !state.busy && state.humanTurn && !state.game.finished) {
                                             val choices = legal.filter { it.take(2) == selected?.let(ChessRules::squareName) && it.substring(2, 4) == ChessRules.squareName(square) }
@@ -167,7 +168,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                     enabled = state.game.moves.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                                     LineIcon(ChessIcon.SHARE, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("导出 PGN")
                                 }
-                                Text("分析按步保存，可随时暂停。深度复评可能更新初评结果。", color = Muted, fontSize = 11.sp)
+                                Text("讲解只在点击后生成，按步保存。深度复评可能更新推荐与评级。", color = Muted, fontSize = 11.sp)
                             } else {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     OutlinedButton(onClick = { model.page(1) }, enabled = state.game.moves.isNotEmpty(),
@@ -206,6 +207,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("拟人对手：Maia-3 5M\n用人类棋谱训练，按走法概率选择，近期重复开局会适度减权。模型与 Stockfish 17.1 随安装包提供，全程离线。最强对手继续使用 Stockfish。", fontSize = 13.sp)
                 Text("新局默认随机白黑，点击即开始。可在对局设置里主动选择，选择会记住。对弈时只提示经过深度验证的 !!，附上弃子原因和参考变化；完整评级与推荐走法在复盘查看。", fontSize = 13.sp)
+                Text("对手落子前默认思考约2–4秒，搜索时间计入等待。复盘点击“讲解这一步”，离线深入分析当前一步的走法目的、关键应对与后续变化，生成后保存在棋谱中。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
                 Text("个人 Elo 从500开始，与 Chess.com 分数独立。匹配局的胜负与和棋按 Elo 公式结算；最强局不计分。前10盘调整较快。删除棋谱不会撤销分数；旧版对局不补计分。", fontSize = 13.sp)
                 Text("采用 Chess.com 公开的预期得分损失阈值：\n最佳：引擎最佳或等值走法\n小于2个百分点：优秀\n2–5：不错 · 5–10：?!\n10–20：? · 20以上：??\n! 是关键好棋，!! 是深入验证的合理弃子。", fontSize = 13.sp)
                 Text("Chess.com 完整算法未公开。这里用引擎分值和棋力估算预期得分。Maia 使用另一套棋谱分数范围，个人 Elo 与模型强度的对应仍是近似值，不能等同平台真人分数。", color = Muted, fontSize = 12.sp)
@@ -297,6 +299,7 @@ private fun ReviewNavigation(state: AppState, model: GameViewModel) {
                     Text(name, fontSize = 11.sp, color = Accent)
                 }
             }
+
         }
     }
 }
@@ -346,6 +349,24 @@ private fun RatingCard(state: AppState, model: GameViewModel) {
                             contentPadding = PaddingValues(horizontal = 6.dp)) { Text("实战变化", fontSize = 12.sp) }
                     }
                     TextButton(onClick = model::analyzeSelected, enabled = !state.busy && state.ready) { Text("复评本步") }
+                }
+            }
+            if (state.cursor > 0) {
+                val lesson = state.chosenLesson
+                if (lesson == null) {
+                    FilledTonalButton(onClick = model::explainSelected, enabled = state.ready && !state.busy,
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                        Text(if (state.explainingPly == state.cursor) "正在讲解第 ${state.cursor} 步…" else "讲解这一步")
+                    }
+                    Text("只生成当前一步的原因与后续思路，完成后自动保存。", fontSize = 11.sp, color = Muted)
+                } else {
+                    HorizontalDivider(color = Line)
+                    Text("为什么这样走", color = Accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(lesson.why, color = Ink, fontSize = 13.sp, lineHeight = 21.sp)
+                    Text("后续思路", color = Accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(lesson.plan, color = Ink, fontSize = 13.sp, lineHeight = 21.sp)
+                    Text("离线讲解 · 搜索深度 ${lesson.depth} · 已保存", fontSize = 11.sp, color = Muted)
+                    OutlinedButton(onClick = model::showLessonVariation, modifier = Modifier.fillMaxWidth()) { Text("跟走这条思路") }
                 }
             }
         }

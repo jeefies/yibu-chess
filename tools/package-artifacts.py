@@ -31,6 +31,7 @@ def test_status(path):
     if not path.exists(): return "not run in this workspace"
     suite = ET.parse(path).getroot()
     assert int(suite.get("failures", 0)) + int(suite.get("errors", 0)) == 0, f"Tests failed: {path}"
+    assert int(suite.get("skipped", 0)) == 0, f"Tests skipped: {path}"
     return f"{suite.get('tests')} passed"
 lint_issues = ET.parse(root / "app/build/reports/lint-results-debug.xml").getroot().findall("issue")
 assert not any(issue.get("severity") in {"Error", "Fatal"} for issue in lint_issues), "Android lint reported errors"
@@ -46,6 +47,7 @@ metadata = {
         "core_jvm_tests": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.CoreTest.xml"),
         "rating_and_elo_jvm_tests": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.RatingAndEloTest.xml"),
         "human_policy_and_upstream_encoding": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.HumanPolicyTest.xml"),
+        "coaching_legal_lines_pacing_special_move_transitions": test_status(root / "core/build/test-results/test/TEST-cn.yibu.chess.core.CoachingAndMotionTest.xml"),
         "rating_storage_and_migration_robolectric": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.data.GameRepositoryTest.xml"),
         "android_startup_robolectric": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.StartupTest.xml"),
         "actual_onnx_model_inference": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.engine.MaiaModelTest.xml"),
@@ -53,6 +55,7 @@ metadata = {
         "live_annotations_and_no_prompt_ui": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessScreenTest.xml"),
         "runtime_exit_diagnostics": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.diagnostics.RuntimeDiagnosticsTest.xml"),
         "board_turn_and_readiness_taps": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessBoardTest.xml"),
+        "piece_motion_retargeting_and_reduced_motion": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.ChessMotionTest.xml"),
         "actual_multi_turn_taps_and_background_recovery": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.PlayInteractionTest.xml"),
         "native_compose_phone_layouts_and_screenshots": test_status(root / "app/build/test-results/testDebugUnitTest/TEST-cn.yibu.chess.ui.UiLayoutTest.xml"),
         "native_host_jni_probe": "passed",

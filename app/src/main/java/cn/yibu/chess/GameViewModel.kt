@@ -2,6 +2,7 @@ package cn.yibu.chess
 
 import android.app.Application
 import android.content.Intent
+import android.os.SystemClock
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -43,6 +45,7 @@ data class AppState(
     val reviewDone: Int = 0,
     val settings: PlaySettings = PlaySettings(),
     val brilliantNotices: List<MoveReview> = emptyList(),
+    val explainingPly: Int? = null,
 ) {
     val boardHistory: List<String> get() = when {
         page != 1 -> game.moves
@@ -50,6 +53,7 @@ data class AppState(
         else -> game.moves.take(cursor)
     }
     val chosenReview: MoveReview? get() = game.reviews.find { it.ply == if (page == 1) cursor else game.moves.size }
+    val chosenLesson: MoveLesson? get() = if (page == 1) game.lessons.find { it.ply == cursor } else null
     val humanTurn: Boolean get() = (game.moves.size % 2 == 0) == game.humanWhite
 }
 
@@ -94,7 +98,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         work?.cancel()
         liveAnalysis?.cancel()
         engine.stop()
-        mutable.update { it.copy(busy = false, analyzing = false) }
+        mutable.update { it.copy(busy = false, analyzing = false, explainingPly = null) }
         if (saveSnapshot && snapshot.moves.isNotEmpty()) viewModelScope.launch { persist(snapshot) }
     }
     fun clearError() { mutable.update { it.copy(error = null) } }
@@ -159,10 +163,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (token == generation && !mutable.value.game.finished && !mutable.value.humanTurn && mutable.value.page == 0) {
                     mutable.update { it.copy(status = "对手正在思考…") }
                     val before = mutable.value.game
+                    val started = SystemClock.elapsedRealtime()
+                    val thinkingTime = OpponentPacing.targetMs()
                     val move = if (before.mode == Difficulty.MATCHED) humanOpponent.move(before, mutable.value.games)
                         else opponent.move(before.moves)
+                    delay(OpponentPacing.remainingMs(thinkingTime, SystemClock.elapsedRealtime() - started))
                     currentCoroutineContext().ensureActive()
-                    if (token != generation) return@launch
+                    if (token != generation || mutable.value.game.id != before.id || mutable.value.page != 0 || mutable.value.game.finished) return@launch
                     val game = withContext(Dispatchers.Default) { finishIfNecessary(before.copy(moves = before.moves + move)) }
                     mutable.update { it.copy(game = game, cursor = game.moves.size) }
                     persist(game)
@@ -215,7 +222,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
         currentCoroutineContext().ensureActive()
         if (token != generation || game.id != mutable.value.game.id) return
-        val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + review).sortedBy { it.ply })
+        val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + review).sortedBy { it.ply },
+            lessons = mutable.value.game.lessons.filterNot { it.ply == ply && it.recommendedMove != review.bestMove })
         mutable.update { state ->
             val notices = state.brilliantNotices.filterNot { it.ply == ply }
             state.copy(game = updated, brilliantNotices = if (state.page == 0 && review.ply >= state.game.moves.size - 1 && review.grade == Grade.BRILLIANT && !review.provisional)
@@ -257,6 +265,38 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(variation = safe, variationBase = base, variationStep = 0) }
     }
     fun retry() { if (mutable.value.page == 0) advance() else analyzeSelected() }
+    fun explainSelected() {
+        val state = mutable.value
+        if (!state.ready || state.busy || state.page != 1 || state.cursor == 0 || state.chosenLesson != null) return
+        val token = generation
+        val ply = state.cursor
+        val gameId = state.game.id
+        mutable.update { it.copy(busy = true, explainingPly = ply, error = null, status = "深入讲解第 $ply 步…") }
+        work = viewModelScope.launch {
+            try {
+                analyzePly(ply, true, token)
+                currentCoroutineContext().ensureActive()
+                if (token != generation || mutable.value.game.id != gameId) return@launch
+                val game = mutable.value.game
+                val review = game.reviews.first { it.ply == ply }
+                val lesson = withContext(Dispatchers.Default) { MoveCoach.explain(game.moves.take(ply - 1), review) }
+                currentCoroutineContext().ensureActive()
+                if (token != generation || mutable.value.game.id != gameId) return@launch
+                mutable.update { it.copy(game = it.game.copy(lessons = (it.game.lessons.filterNot { note -> note.ply == ply } + lesson).sortedBy { note -> note.ply })) }
+                persist(mutable.value.game)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (token == generation) mutable.update { it.copy(error = "本步讲解失败：${e.message}，可再次点击讲解。") } }
+            finally { if (token == generation) mutable.update { it.copy(busy = false, explainingPly = null,
+                status = if (it.game.lessons.any { note -> note.ply == ply }) "第 $ply 步讲解已保存" else "本步讲解未完成，可重试") } }
+        }
+    }
+    fun showLessonVariation() {
+        val state = mutable.value
+        val lesson = state.chosenLesson ?: return
+        val base = lesson.ply - 1
+        val safe = ChessRules.legalVariation(state.game.moves.take(base), lesson.variation)
+        mutable.update { it.copy(variation = safe, variationBase = base, variationStep = 0) }
+    }
     fun analyzeSelected() {
         val state = mutable.value
         if (!state.ready || state.busy || state.page != 1 || state.cursor == 0) return

@@ -109,4 +109,19 @@ class GameRepositoryTest {
         assertEquals(PlayerProfile(532, 1), repository.profile())
         assertEquals(2, repository.games.first().size)
     }
+    @Test fun singleStepLessonsSurviveReloadAndAreRemovedWithTheirGame() = runBlocking {
+        val evaluation = Evaluation(22, pv = listOf("e2e4", "e7e5", "g1f3"))
+        val review = MoveReview(1, "e2e4", "e4", evaluation, evaluation, grade = Grade.BEST, explanation = "")
+        val lesson = MoveCoach.explain(emptyList(), review)
+        val game = finished("0-1").copy(moves = listOf("e2e4", "e7e5"), lessons = listOf(lesson))
+        repository.save(game)
+        val restored = requireNotNull(repository.latest())
+        assertEquals(listOf(lesson), restored.lessons)
+        assertEquals(listOf("e2e4", "e7e5"), restored.moves)
+        assertEquals(PlayerProfile(468, 1), repository.profile())
+        repository.delete(game.id)
+        repository.save(restored)
+        assertTrue(repository.games.first().isEmpty())
+        assertEquals(PlayerProfile(468, 1), repository.profile())
+    }
 }

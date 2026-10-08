@@ -9,6 +9,9 @@ import androidx.test.core.app.ApplicationProvider
 import cn.yibu.chess.GameViewModel
 import cn.yibu.chess.core.ChessRules
 import cn.yibu.chess.core.Difficulty
+import cn.yibu.chess.core.GameRecord
+import cn.yibu.chess.data.GameRepository
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -101,4 +104,63 @@ class PlayInteractionTest {
     @Test fun whiteCanPlayThreeTurnsWhileMaiaAndStockfishRun() = play(true, Difficulty.MATCHED, 3)
     @Test fun blackCanPlayThreeTurnsWhileMaiaAndStockfishRun() = play(false, Difficulty.MATCHED, 3)
     @Test fun strongOpponentTakesPriorityOverBackgroundAnalysis() = play(true, Difficulty.STRONG, 2)
+
+    @Test fun thinkingPauseDoesNotCommitAMoveAfterNavigationBackgroundOrNewGame() {
+        assumeTrue(System.getProperty("startup.native") == "true")
+        val model = GameViewModel(ApplicationProvider.getApplicationContext())
+        val store = ViewModelStore().apply { put("game", model) }
+        try {
+            compose.setContent { ChessApp(model) }
+            waitFor(model) { model.state.value.ready }
+            compose.runOnIdle { model.newGame(Difficulty.MATCHED, true) }
+            waitFor(model) { !model.state.value.transitioning && !model.state.value.busy }
+            compose.runOnIdle { model.play("e2e4") }
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+            assertEquals(listOf("e2e4"), model.state.value.game.moves)
+            assertTrue(model.state.value.busy)
+            compose.runOnIdle { model.page(1) }
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6))
+            assertEquals(listOf("e2e4"), model.state.value.game.moves)
+            assertFalse(model.state.value.busy)
+            compose.runOnIdle { model.page(0); model.pauseForBackground() }
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6))
+            assertEquals(listOf("e2e4"), model.state.value.game.moves)
+            val previousId = model.state.value.game.id
+            compose.runOnIdle { model.resumeForeground(); model.newGame(Difficulty.MATCHED, true) }
+            waitFor(model) { !model.state.value.transitioning && model.state.value.game.id != previousId }
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6))
+            assertTrue(model.state.value.game.moves.isEmpty())
+            assertFalse(model.state.value.busy)
+            assertNull(model.state.value.error)
+        } finally { compose.runOnIdle { store.clear() } }
+    }
+
+    @Test fun explainingOneStepWhileChangingCursorSavesOnlyTheRequestedStep() {
+        assumeTrue(System.getProperty("startup.native") == "true")
+        val model = GameViewModel(ApplicationProvider.getApplicationContext())
+        val store = ViewModelStore().apply { put("game", model) }
+        try {
+            compose.setContent { ChessApp(model) }
+            waitFor(model) { model.state.value.ready }
+            val game = GameRecord(moves = listOf("e2e4", "e7e5", "g1f3", "b8c6"))
+            compose.runOnIdle { model.load(game); model.cursor(3); model.explainSelected(); model.cursor(1) }
+            waitFor(model) { !model.state.value.busy }
+            assertNull(model.state.value.error)
+            assertEquals(1, model.state.value.cursor)
+            assertEquals(listOf(3), model.state.value.game.lessons.map { it.ply })
+            assertEquals(listOf(3), model.state.value.game.reviews.map { it.ply })
+            assertNull(model.state.value.chosenLesson)
+            val lesson = model.state.value.game.lessons.single()
+            assertTrue(lesson.why.isNotBlank() && lesson.plan.contains("对手关键应对"))
+            assertEquals(lesson.variation, ChessRules.legalVariation(game.moves.take(2), lesson.variation))
+            val restored = runBlocking { GameRepository(ApplicationProvider.getApplicationContext()).latest() }
+            assertEquals(listOf(lesson), restored?.lessons)
+            compose.runOnIdle { model.cursor(3); model.explainSelected() }
+            assertFalse("Cached explanations should not start another search", model.state.value.busy)
+            assertEquals(lesson, model.state.value.chosenLesson)
+            compose.runOnIdle { model.showLessonVariation() }
+            assertEquals(2, model.state.value.variationBase)
+            assertEquals(lesson.variation, model.state.value.variation)
+        } finally { compose.runOnIdle { store.clear() } }
+    }
 }

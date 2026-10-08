@@ -16,8 +16,8 @@ android {
         applicationId = "cn.yibu.chess"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.4.0"
+        versionCode = 8
+        versionName = "0.5.0"
         buildConfigField("String", "ONNX_RUNTIME_VERSION", "\"$onnxRuntimeVersion\"")
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
@@ -54,6 +54,7 @@ android {
 }
 tasks.withType<Test>().configureEach {
     maxHeapSize = "1g" // Robolectric's Android SDKs and Compose need more than Gradle's 512 MiB default.
+    testLogging.events("started", "passed", "failed", "skipped")
     providers.gradleProperty("startupNativeDir").orNull?.let { directory ->
         // JNI libraries cannot be loaded into two Robolectric sandbox classloaders in one JVM.
         forkEvery = 1
