@@ -25,14 +25,14 @@ Maia-3 从人类棋谱预测走法，用合法走法掩码后按概率抽样。�
 
 ## 在手机上安装
 
-[下载 ARM64 APK（约 10 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.8.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.8.0-arm64.apk)
+[下载 ARM64 APK（约 22.5 MiB）](https://github.com/well49112/yibu-chess/raw/refs/heads/apk-downloads/yibu-0.8.0-arm64.apk) · [打开安装包页面](https://github.com/well49112/yibu-chess/blob/apk-downloads/yibu-0.8.0-arm64.apk)
 
 安装包页面右上角的下载按钮会保存 APK；源码 ZIP 用于开发，不能直接安装。
 
 1. 下载 `yibu-0.8.0-arm64.apk`，按系统提示允许下载来源安装。已安装旧版时直接覆盖升级即可，签名保持一致，旧棋谱通过数据库迁移保留。
 2. 需要远端分析时，在“对局设置”中填入朋友提供的 Access Token，可点击“测试连接”，再点“保存设置”保留当前棋局。
 3. 对弈依然包含本地离线 Maia-3 模型（支持断网对局）；深度复盘、单步讲解与云端最强引擎使用远端 Stockfish API 服务。
-4. 移除本地 NNUE 权重与 C++ 引擎桥接后，安装包体积由 84 MiB 缩减至约 10 MiB，手机不再执行 Stockfish 搜索。
+4. 移除本地 NNUE 权重与 C++ 引擎桥接后，签名 release 实测约 22.5 MiB，原版约 84 MiB；手机不再执行 Stockfish 搜索。
 
 最低 Android 8.0 (API 26)，目标 SDK 35，首版打包 arm64。
 
