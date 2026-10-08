@@ -21,29 +21,15 @@ object RatingRules {
     }
 }
 
-class MoveAnalyzer(private val engine: ChessEngine) {
+class MoveAnalyzer(private val service: StockfishService) {
+    constructor(engine: ChessEngine) : this(EngineToServiceAdapter(engine))
+
     suspend fun analyze(history: List<String>, uci: String, deep: Boolean, playerElo: Int = 500): MoveReview {
         val legal = ChessRules.legal(history)
         require(uci in legal)
-        val request = SearchRequest(timeMs = if (deep) 6000 else 1500, depth = if (deep) 22 else 18,
-            multiPv = minOf(if (deep) 2 else 3, legal.size), threads = if (deep) 8 else 2,
-            hashMb = if (deep) 512 else 128, reuseSearch = deep)
-        var root = engine.search(history, request)
-        var best = root.best
-        var actual = root.lines.find { it.pv.firstOrNull() == uci }
-        if (actual == null) {
-            val forced = engine.search(history, request.copy(depth = best.depth, multiPv = 1, restricted = listOf(uci)))
-            var commonDepth = root.snapshots.keys.intersect(forced.snapshots.keys).maxOrNull()
-            if (commonDepth == null) {
-                root = engine.search(history, request.copy(depth = minOf(best.depth, forced.best.depth)))
-                commonDepth = root.snapshots.keys.intersect(forced.snapshots.keys).maxOrNull()
-            }
-            if (commonDepth != null) {
-                best = root.snapshots.getValue(commonDepth).first()
-                actual = forced.snapshots.getValue(commonDepth).first()
-            } else actual = forced.best
-        }
-        var played = requireNotNull(actual)
+        val analysis = service.analyzeMove(history, uci, deep)
+        var best = analysis.best
+        var played = analysis.played
         // Terminal game outcomes override statistical WDL, including mandatory draws.
         val outcome = ChessRules.outcome(history + uci)
         outcome?.let { (result, _) ->
@@ -58,15 +44,15 @@ class MoveAnalyzer(private val engine: ChessEngine) {
         val playedPoints = if (outcome?.first == "1/2-1/2") 0.5 else RatingRules.expectedPoints(played, playerElo)
         val negative = playedPoints - bestPoints > 0.025
         val loss = (bestPoints - playedPoints).coerceAtLeast(0.0)
-        val second = root.snapshots[best.depth]?.getOrNull(1)
+        val second = analysis.second
         val nearThreshold = listOf(0.02, 0.05, 0.10, 0.20).any { abs(loss - it) < 0.006 }
-        val stable = sameDepth && !negative
+        val stable = (analysis.canCompare || sameDepth) && !negative
         val tied = best.mate == played.mate && best.cp == played.cp && abs(bestPoints - playedPoints) < 1e-9
         var grade = RatingRules.ordinary(loss, best.pv.firstOrNull() == uci || tied)
         if (!stable) grade = Grade.UNSTABLE
         else if (legal.size == 1) grade = Grade.FORCED
         else if (loss < 0.02 && deep && best.depth >= 14) {
-            val previous = root.snapshots.filterKeys { it < best.depth }.maxByOrNull { it.key }?.value?.firstOrNull()
+            val previous = analysis.previousBest
             val stableBest = previous?.pv?.firstOrNull() == best.pv.firstOrNull() && previous != null && abs(RatingRules.expectedPoints(previous, playerElo) - bestPoints) < 0.025
             if (stableBest && playedPoints >= 0.50 && second != null && RatingRules.expectedPoints(second, playerElo) < 0.85 && ChessRules.substantialSacrifice(history, played.pv)) grade = Grade.BRILLIANT
             else if (stableBest && second != null && bestPoints - RatingRules.expectedPoints(second, playerElo) >= 0.10 && best.pv.firstOrNull() == uci && (best.mate == null || best.mate > 1)) grade = Grade.GREAT
@@ -84,6 +70,7 @@ class MoveAnalyzer(private val engine: ChessEngine) {
         } + if (best.mate != null && best.mate > 0 && played.mate == null) " 这步错过了引擎发现的强制将杀。" else ""
         return MoveReview(history.size + 1, uci, ChessRules.san(history, uci), best, played, second,
             grade, explanation, provisional = !deep || !stable || nearThreshold || best.depth < 12,
+            engineVersion = analysis.engineName,
             algorithmVersion = 3, scoringElo = playerElo, bestExpectedPoints = bestPoints, playedExpectedPoints = playedPoints,
             brilliantReason = brilliant?.reason, brilliantPlan = brilliant?.plan, deeplySearched = deep)
     }

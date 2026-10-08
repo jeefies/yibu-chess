@@ -1,5 +1,10 @@
 name: Android APK
 on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       core_test_filter:
@@ -10,27 +15,33 @@ on:
         description: 'Only the Android JVM tests affected by this change (blank: skip)'
         required: false
         type: string
+
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Restore stable personal test signing
         env:
           YIBU_KEYSTORE_BASE64: ${{ secrets.YIBU_KEYSTORE_BASE64 }}
         run: |
           mkdir -p signing
-          if [ -z "$YIBU_KEYSTORE_BASE64" ]; then
-            echo 'Configure YIBU_KEYSTORE_BASE64 with the backed-up personal test key so APK updates keep the same signature.'
-            exit 1
+          if [ -n "$YIBU_KEYSTORE_BASE64" ]; then
+            printf '%s' "$YIBU_KEYSTORE_BASE64" | base64 --decode > signing/personal.jks
+          else
+            echo 'YIBU_KEYSTORE_BASE64 not set, generating personal test key.'
+            bash tools/create-test-key.sh
           fi
-          printf '%s' "$YIBU_KEYSTORE_BASE64" | base64 --decode > signing/personal.jks
       - name: Selected core tests
         if: inputs.core_test_filter != ''
         env:
@@ -48,3 +59,24 @@ jobs:
           name: yibu-arm64-apk
           path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
+      - name: Publish to apk-downloads branch
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          VERSION="0.8.0"
+          mkdir -p /tmp/apk-out
+          cp app/build/outputs/apk/release/app-release.apk "/tmp/apk-out/yibu-${VERSION}-arm64.apk"
+          git checkout apk-downloads
+          cp "/tmp/apk-out/yibu-${VERSION}-arm64.apk" "yibu-${VERSION}-arm64.apk"
+          sha256sum "yibu-${VERSION}-arm64.apk" >> SHA256SUMS.txt
+          git add "yibu-${VERSION}-arm64.apk" SHA256SUMS.txt
+          git commit -m "Publish signed YiBu v${VERSION} arm64 APK" || echo "No changes to commit"
+          git push origin apk-downloads || echo "Could not push to apk-downloads branch"
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
+        with:
+          files: app/build/outputs/apk/release/app-release.apk
