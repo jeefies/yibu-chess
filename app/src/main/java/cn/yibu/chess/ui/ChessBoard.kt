@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
@@ -36,6 +38,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import cn.yibu.chess.core.ChessRules
 import cn.yibu.chess.core.BoardTransition
+import cn.yibu.chess.core.KingBreak
+import kotlinx.coroutines.delay
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -49,6 +53,8 @@ fun ChessBoard(
     lastMove: String?,
     arrow: String? = null,
     animationKey: Long = 0,
+    kingBreak: KingBreak? = null,
+    onKingBreakFinished: (Long) -> Unit = {},
     onSquare: (Int) -> Unit,
 ) {
     // Read the latest turn/readiness/selection callback without restarting a tap gesture.
@@ -97,6 +103,22 @@ fun ChessBoard(
         scene = null
     }
     val activeScene = plannedScene?.takeUnless { it === completedScene }
+    val burst = remember(kingBreak?.gameId) { Animatable(0f) }
+    var breaking by remember(kingBreak?.gameId) { mutableStateOf(false) }
+    var fallenKing by remember(flipped, animationKey, fen) { mutableStateOf<Int?>(null) }
+    val finishedCallback by rememberUpdatedState(onKingBreakFinished)
+    LaunchedEffect(kingBreak?.gameId) {
+        val event = kingBreak ?: return@LaunchedEffect
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            // Let the mating move land first. This one-time end celebration lasts 800 ms.
+            if (event.checkmate) delay(260)
+            breaking = true
+            burst.animateTo(1f, tween(800, easing = androidx.compose.animation.core.LinearEasing))
+            fallenKing = event.square
+            breaking = false
+        }
+        finishedCallback(event.gameId)
+    }
     val hidden = activeScene?.let { it.motions.map { motion -> motion.to }.toSet() + it.fades.filter { fading -> fading.appearing }.map { fading -> fading.square } }.orEmpty()
     Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))
         .semantics { contentDescription = "国际象棋棋盘，${if (flipped) "黑方" else "白方"}视角" }
@@ -123,7 +145,7 @@ fun ChessBoard(
             if (index == selected) drawRect(Color(0xFFE6C463).copy(alpha = .80f), topLeft, Size(cell, cell))
             val piece = pieces[index]
             val c = center(index)
-            if (piece != ' ' && index !in hidden) drawChessPiece(piece, c, cell, paint)
+            if (piece != ' ' && index !in hidden && index != fallenKing && !(breaking && index == kingBreak?.square)) drawChessPiece(piece, c, cell, paint)
             if (index in targets) {
                 if (piece == ' ') drawCircle(Color(0xFF263D28).copy(alpha = .38f), cell * .12f, c)
                 else drawCircle(Color(0xFFE8C858), cell * .43f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(cell * .07f))
@@ -169,6 +191,34 @@ fun ChessBoard(
           }.testTag("piece-motion-${ChessRules.squareName(moving.to)}")) {
               val cell = size.width / 8
               drawChessPiece(moving.piece, (boardPoint(moving.to, flipped) + Offset(.5f, .5f)) * cell, cell, paint)
+          }
+      }
+      if (breaking && kingBreak != null) {
+          val point = boardPoint(kingBreak.square, flipped)
+          val rim = listOf(Offset(0f, 0f), Offset(.5f, 0f), Offset(1f, 0f), Offset(1f, .5f),
+              Offset(1f, 1f), Offset(.5f, 1f), Offset(0f, 1f), Offset(0f, .5f))
+          rim.indices.forEach { index ->
+              val direction = (rim[index] + rim[(index + 1) % rim.size]) / 2f - Offset(.5f, .5f)
+              Canvas(Modifier.matchParentSize().graphicsLayer {
+                  val cell = size.width / 8f
+                  val t = burst.value
+                  val launch = CubicBezierEasing(.23f, 1f, .32f, 1f).transform(t)
+                  transformOrigin = TransformOrigin((point.x + .5f) / 8f, (point.y + .5f) / 8f)
+                  translationX = direction.x * cell * 2.8f * launch
+                  translationY = (direction.y * 1.8f * launch - .35f * launch + 1.5f * t * t) * cell
+                  rotationZ = (if (index % 2 == 0) 1 else -1) * (45f + index * 9f) * t
+                  alpha = ((1f - t) / .35f).coerceIn(0f, 1f)
+              }.testTag("king-shard-$index")) {
+                  val cell = size.width / 8f
+                  val start = point * cell
+                  val mask = Path().apply {
+                      moveTo(start.x + .5f * cell, start.y + .53f * cell)
+                      lineTo(start.x + rim[index].x * cell, start.y + rim[index].y * cell)
+                      lineTo(start.x + rim[(index + 1) % rim.size].x * cell, start.y + rim[(index + 1) % rim.size].y * cell)
+                      close()
+                  }
+                  clipPath(mask) { drawChessPiece(if (kingBreak.white) 'K' else 'k', start + Offset(.5f, .5f) * cell, cell, paint) }
+              }
           }
       }
     }

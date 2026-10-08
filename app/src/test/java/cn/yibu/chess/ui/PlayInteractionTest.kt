@@ -42,6 +42,57 @@ class PlayInteractionTest {
     }
 
     @Test @Config(qualifiers = "w412dp-h915dp-mdpi")
+    fun terminalEffectsAreTransientAndCachedGlobalReviewOpensTheAutomaticTour() {
+        assumeTrue(System.getProperty("startup.native") == "true")
+        val model = GameViewModel(ApplicationProvider.getApplicationContext())
+        val store = ViewModelStore().apply { put("highlights", model) }
+        try {
+            compose.setContent { ChessApp(model) }
+            waitFor(model) { model.state.value.ready && !model.state.value.busy }
+            val before = GameRecord(moves = listOf("f2f3", "e7e5", "g2g4"), humanWhite = false, difficulty = Difficulty.STRONG)
+            compose.runOnIdle {
+                model.load(before); model.page(0); model.play("d8h4")
+                assertEquals("将杀", model.state.value.game.ending)
+                assertEquals(true, model.state.value.kingBreak?.white)
+                val finished = model.state.value.game
+                model.load(finished)
+                assertNull(model.state.value.kingBreak)
+                assertEquals(before.moves + "d8h4", model.state.value.game.moves)
+            }
+            val moves = listOf("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6")
+            val reviews = moves.mapIndexed { index, move ->
+                val ev = cn.yibu.chess.core.Evaluation(26, cp = 20, pv = moves.drop(index).take(4))
+                cn.yibu.chess.core.MoveReview(index + 1, move, ChessRules.san(moves.take(index), move), ev, ev,
+                    grade = cn.yibu.chess.core.Grade.GOOD, explanation = "", provisional = false,
+                    algorithmVersion = 3, scoringElo = if (index % 2 == 0) 500 else 2800, deeplySearched = true)
+            }
+            val game = GameRecord(moves = moves, reviews = reviews, humanWhite = true, difficulty = Difficulty.STRONG,
+                playerEloAtStart = 500, opponentElo = 2800)
+            compose.runOnIdle {
+                model.load(game); model.page(0); model.resign()
+                assertEquals("认输", model.state.value.game.ending)
+                assertEquals(true, model.state.value.kingBreak?.white)
+                model.finishKingBreak(-1)
+                assertNotNull(model.state.value.kingBreak)
+                model.finishKingBreak(game.id)
+                assertNull(model.state.value.kingBreak)
+                model.reviewHighlights()
+            }
+            waitFor(model) { !model.state.value.busy && model.state.value.highlightsOpen }
+            assertNull(model.state.value.error)
+            assertEquals(reviews, model.state.value.game.reviews)
+            assertTrue(model.state.value.highlights.size in 3..5)
+            assertFalse(model.state.value.lessonOpen)
+            assertTrue(model.state.value.game.lessons.isEmpty())
+            compose.onNodeWithText("暂停").assertIsDisplayed()
+            compose.onNodeWithTag("highlight-board").assertIsDisplayed()
+            compose.onNodeWithText("逐步复盘").performClick()
+            assertFalse(model.state.value.highlightsOpen)
+            assertEquals(moves, model.state.value.boardHistory)
+        } finally { compose.runOnIdle { store.clear() } }
+    }
+
+    @Test @Config(qualifiers = "w412dp-h915dp-mdpi")
     fun deepReviewCacheOpensAnAnnotatedBoardAndPlaybackWithoutRepeatingSearch() {
         assumeTrue(System.getProperty("startup.native") == "true")
         val model = GameViewModel(ApplicationProvider.getApplicationContext())

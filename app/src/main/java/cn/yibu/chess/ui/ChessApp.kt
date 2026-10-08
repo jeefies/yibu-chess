@@ -66,8 +66,9 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
     var selected by remember(state.game.id, state.boardHistory) { mutableStateOf<Int?>(null) }
     var flipOverride by remember(state.game.id) { mutableStateOf(false) }
     val contentScroll = rememberScrollState()
-    LaunchedEffect(state.page, state.lessonOpen) { contentScroll.scrollTo(0) }
+    LaunchedEffect(state.page, state.lessonOpen, state.highlightsOpen) { contentScroll.scrollTo(0) }
     BackHandler(enabled = state.page == 1 && state.lessonOpen, onBack = model::closeLesson)
+    BackHandler(enabled = state.page == 1 && state.highlightsOpen, onBack = model::closeHighlights)
     val fen = remember(state.boardHistory) { ChessRules.board(state.boardHistory).fen }
     val legal = remember(state.boardHistory) { ChessRules.legal(state.boardHistory) }
     val targets = remember(selected, legal) { legal.filter { it.take(2) == selected?.let(ChessRules::squareName) }.map { ChessRules.squareIndex(it.substring(2, 4)) }.toSet() }
@@ -93,6 +94,11 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                     AppHeader(state, model) { aboutDialog = true }
                     if (state.page == 2) {
                         Library(state, model)
+                    } else if (state.page == 1 && state.highlightsOpen) {
+                        Box(Modifier.weight(1f)) {
+                            HighlightsWorkspace(state.game, state.highlights, !state.game.humanWhite xor flipOverride,
+                                onClose = model::closeHighlights, onFlip = { flipOverride = !flipOverride })
+                        }
                     } else if (state.page == 1 && state.lessonOpen) {
                         Box(Modifier.weight(1f)) {
                             LessonWorkspace(state, !state.game.humanWhite xor flipOverride,
@@ -113,14 +119,21 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                 if (state.page == 0) IconAction(ChessIcon.SETTINGS, "对局设置", { newDialog = true }, state.ready && !state.transitioning)
                                 else StatusPill(if (!state.game.humanWhite xor flipOverride) "黑方在下" else "白方在下")
                             }
+                            if (state.page == 1) {
+                                PrimaryAction("全局复盘 · 自动看关键点", model::reviewHighlights, Modifier.fillMaxWidth(),
+                                    state.ready && !state.busy && state.game.moves.isNotEmpty(), ChessIcon.REVIEW)
+                            }
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OpponentRow(state)
                                 Box(Modifier.shadow(5.dp, RoundedCornerShape(15.dp), ambientColor = Ink.copy(alpha = .12f), spotColor = Ink.copy(alpha = .12f))
                                     .background(Ink, RoundedCornerShape(15.dp)).padding(4.dp)) {
+                                    key(state.page) {
                                     ChessBoard(fen, flipped = !state.game.humanWhite xor flipOverride,
                                         selected = selected, targets = if (state.page == 0 && !state.busy) targets else emptySet(),
                                         lastMove = state.boardHistory.lastOrNull(),
                                         animationKey = state.game.id,
+                                        kingBreak = if (state.page == 0) state.kingBreak else null,
+                                        onKingBreakFinished = model::finishKingBreak,
                                         arrow = if (state.variation.isNotEmpty() && state.variationStep == 0) state.variation.first() else null) { square ->
                                         if (state.page == 0 && state.ready && !state.busy && state.humanTurn && !state.game.finished) {
                                             val choices = legal.filter { it.take(2) == selected?.let(ChessRules::squareName) && it.substring(2, 4) == ChessRules.squareName(square) }
@@ -132,6 +145,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                             }
                                         }
                                     }
+                                }
                                 }
                                 PlayerRow(state) { flipOverride = !flipOverride }
                             }
@@ -179,10 +193,10 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
                                 Text("讲解只在点击后生成，按步保存。深度复评可能更新推荐与评级。", color = Muted, fontSize = 11.sp)
                             } else {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedButton(onClick = { model.page(1) }, enabled = state.game.moves.isNotEmpty(),
+                                    OutlinedButton(onClick = { if (state.game.finished) model.reviewHighlights() else model.page(1) }, enabled = state.game.moves.isNotEmpty() && !state.busy,
                                         modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(14.dp)) {
                                         LineIcon(ChessIcon.REVIEW, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                                        Text(if (state.game.finished) "赛后复盘" else "查看复盘")
+                                        Text(if (state.game.finished) "关键点复盘" else "查看复盘")
                                     }
                                     if (!state.game.finished) TextButton(onClick = { resignDialog = true }, enabled = !state.busy) { Text("认输", color = Muted) }
                                 }
@@ -215,6 +229,7 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("拟人对手：Maia-3 5M\n用人类棋谱训练，按走法概率选择，近期重复开局会适度减权。模型与 Stockfish 17.1 随安装包提供，全程离线。最强对手继续使用 Stockfish。", fontSize = 13.sp)
                 Text("新局默认随机白黑，点击即开始。可在对局设置里主动选择，选择会记住。对弈时只提示经过深度验证的 !!，附上弃子原因和参考变化；完整评级与推荐走法在复盘查看。", fontSize = 13.sp)
+                Text("将杀和认输后，落败方的王会播放碎裂特效。全局复盘会挑选几个关键节点，自动展示实战与推荐思路；可随时暂停或返回逐步复盘。", fontSize = 13.sp)
                 Text("对手落子前默认思考约1–2秒，搜索时间计入等待。复盘点击“讲解这一步”，棋盘与原因、后续思路在同一屏查看，每着参考变化都有说明，可逐步跟走或自动演示。深度分析使用最多8线程与512 MiB缓存，复用已有分析与搜索缓存。讲解基于引擎变化和局面事实，不是联网聊天模型。", fontSize = 13.sp)
                 Text("个人 Elo 从500开始，与 Chess.com 分数独立。匹配局的胜负与和棋按 Elo 公式结算；最强局不计分。前10盘调整较快。删除棋谱不会撤销分数；旧版对局不补计分。", fontSize = 13.sp)
                 Text("采用 Chess.com 公开的预期得分损失阈值：\n最佳：引擎最佳或等值走法\n小于2个百分点：优秀\n2–5：不错 · 5–10：?!\n10–20：? · 20以上：??\n! 是关键好棋，!! 是深入验证的合理弃子。", fontSize = 13.sp)
