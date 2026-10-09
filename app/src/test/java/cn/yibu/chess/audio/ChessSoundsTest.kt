@@ -83,6 +83,27 @@ class ChessSoundsTest {
             assertTrue(bytes.size in 2000..60000)
             val peak = (44 until bytes.size step 2).maxOf { kotlin.math.abs(buffer.getShort(it).toInt()) }
             assertTrue("Silent or clipped sample for $cue: $peak", peak in 100..26215)
+            assertEquals("Sample must start at zero: $cue", 0, buffer.getShort(44).toInt())
+            val tail = (bytes.size - 440 until bytes.size step 2).maxOf { kotlin.math.abs(buffer.getShort(it).toInt()) }
+            assertTrue("Abrupt ending for $cue: $tail", tail < 120)
         }
+    }
+
+    @Test fun pieceMovesUseShortTransientImpactsAndCaptureHasADistinctBody() {
+        fun samples(cue: SoundCue): List<Int> {
+            val id = context().resources.getIdentifier("sfx_${cue.name.lowercase()}", "raw", context().packageName)
+            val bytes = context().resources.openRawResource(id).use { it.readBytes() }
+            val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            return (44 until bytes.size step 2).map { buffer.getShort(it).toInt() }
+        }
+        fun energy(part: List<Int>) = part.sumOf { it.toDouble() * it }
+        val move = samples(SoundCue.MOVE)
+        val capture = samples(SoundCue.CAPTURE)
+        val check = samples(SoundCue.CHECK)
+        assertTrue(move.size <= 44100 * .12)
+        assertTrue(check.size <= 44100 * .15)
+        assertTrue(energy(move.take(1323)) > energy(move.drop(1323)) * 10)
+        assertTrue(energy(capture.take(2205)) > energy(capture.drop(2205)) * 10)
+        assertNotEquals(move.take(1323), capture.take(1323))
     }
 }

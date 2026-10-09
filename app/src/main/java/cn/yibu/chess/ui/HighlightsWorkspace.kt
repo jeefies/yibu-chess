@@ -25,13 +25,17 @@ internal fun HighlightsWorkspace(game: GameRecord, highlights: List<ReviewHighli
     var complete by remember(game.id, highlights) { mutableStateOf(false) }
     val feedback = LocalSoundFeedback.current
     val reviewSound = LocalReviewSound.current
-    fun lastFrame(index: Int): Int = highlights[index].lesson?.variation?.take(3)?.size?.let { it + 2 } ?: 1
+    val lines = remember(game.moves, highlights) { highlights.map { chosen ->
+        ChessRules.legalVariation(game.moves.take(chosen.ply - 1),
+            chosen.lesson?.variation.orEmpty().take(MoveCoach.MAX_VARIATION_PLIES))
+    } }
+    fun lastFrame(index: Int): Int = if (lines[index].isEmpty()) 1 else lines[index].size + 2
     fun historyAt(index: Int, stage: Int): List<String> {
         val chosen = highlights[index]
         val root = game.moves.take(chosen.ply - 1)
         return when {
             stage == 1 -> root + game.moves[chosen.ply - 1]
-            stage >= 3 -> root + chosen.lesson?.variation.orEmpty().take(stage - 2)
+            stage >= 3 -> root + lines[index].take(stage - 2)
             else -> root
         }
     }
@@ -41,10 +45,13 @@ internal fun HighlightsWorkspace(game: GameRecord, highlights: List<ReviewHighli
     }
     val highlight = highlights[point]
     val root = remember(game.moves, highlight.ply) { game.moves.take(highlight.ply - 1) }
-    val line = highlight.lesson?.variation?.take(3).orEmpty()
+    val line = lines[point]
+    val steps = remember(root, line, highlight.lesson) {
+        highlight.lesson?.steps?.takeIf { it.map(LessonStep::uci) == line } ?: MoveCoach.annotatedSteps(root, line)
+    }
     val history = historyAt(point, frame)
     val fen = remember(history) { ChessRules.board(history).fen }
-    val step = highlight.lesson?.steps?.getOrNull(frame - 3)
+    val step = steps.getOrNull(frame - 3)
     val actor = if (highlight.ply % 2 == 1) "白方" else "黑方"
     val san = remember(game.id, highlight.ply, game.moves) { ChessRules.san(root, game.moves[highlight.ply - 1]) }
     val label = when {
@@ -85,12 +92,16 @@ internal fun HighlightsWorkspace(game: GameRecord, highlights: List<ReviewHighli
                 .verticalScroll(key(point, frame) { rememberScrollState() }).padding(14.dp).testTag("highlight-notes"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(when {
-                    frame <= 1 -> highlight.reason
+                    frame == 0 -> highlight.reason
+                    frame == 1 -> listOf(highlight.reason, highlight.lesson?.playedExplanation.orEmpty())
+                        .filter { it.isNotBlank() }.joinToString("\n\n")
                     frame == 2 -> highlight.lesson?.why.orEmpty()
                     else -> step?.title.orEmpty()
                 }, fontSize = 14.sp, lineHeight = 22.sp, modifier = Modifier.testTag("highlight-explanation"))
                 if (frame >= 3) Text(step?.explanation.orEmpty(), fontSize = 14.sp, lineHeight = 22.sp)
-                if (frame >= 2) Text("这是引擎参考路线；对手改变走法时，需要重新判断。", color = Muted, fontSize = 11.sp)
+                if (frame >= 2) Text(if (frame == lastFrame(point))
+                    "本条参考路线到此；搜索结束不等于计划已完成，对手改变走法时需要重新判断。"
+                    else "手动查看每一着及应对；对手改变走法时，需要重新判断。", color = Muted, fontSize = 11.sp)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = feedbackClick { seek(point - 1, 0) }, enabled = point > 0) { Text("上个点", fontSize = 12.sp) }

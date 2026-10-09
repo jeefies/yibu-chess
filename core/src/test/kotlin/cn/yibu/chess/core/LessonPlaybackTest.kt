@@ -5,6 +5,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LessonPlaybackTest {
+    @Test fun aLongEngineLineKeepsSixteenLegalPliesWithAnnotationsAndNextReplyContext() {
+        val line = listOf("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1", "f8e7",
+            "f1e1", "b7b5", "a4b3", "d7d6", "c2c3", "e8g8", "h2h3", "c6b8")
+        val eval = Evaluation(22, cp = 30, pv = line)
+        val review = MoveReview(1, "e2e4", "e4", eval, eval, grade = Grade.BEST, explanation = "")
+        val lesson = MoveCoach.explain(emptyList(), review)
+        assertEquals(line.take(16), lesson.variation)
+        assertEquals(16, lesson.steps.size)
+        assertTrue(lesson.steps[10].explanation.contains("下一着参考：b5"))
+        assertTrue(lesson.steps.last().title.contains("黑方 O-O"))
+        assertTrue(lesson.steps.last().explanation.contains("不代表计划已经完成"))
+        assertFalse(lesson.plan.contains("白方 h3"))
+    }
+
     @Test fun everyShownMoveHasAnExplanationIncludingMovesBeyondTheSixth() {
         val line = listOf("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1", "f8e7")
         val eval = Evaluation(22, cp = 30, pv = line)

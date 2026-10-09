@@ -399,7 +399,8 @@ private fun RatingCard(state: AppState, model: GameViewModel) {
                     HorizontalDivider(color = Line)
                     Text("为什么这样走", color = Accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     Text("离线讲解 · 搜索深度 ${lesson.depth} · 已保存", fontSize = 11.sp, color = Muted)
-                    FilledTonalButton(onClick = feedbackClick(model::showLessonVariation), modifier = Modifier.fillMaxWidth()) { Text("打开讲解与棋盘演示") }
+                    FilledTonalButton(onClick = feedbackClick(model::explainSelected), enabled = state.ready && !state.busy,
+                        modifier = Modifier.fillMaxWidth()) { Text("打开讲解与棋盘演示") }
                 }
             }
         }

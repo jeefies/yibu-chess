@@ -33,7 +33,8 @@ class HighlightsWorkspaceTest {
             return MoveCoach.explain(root, MoveReview(ply, game.moves[ply - 1], ChessRules.san(root, game.moves[ply - 1]),
                 ev, ev, grade = Grade.GOOD, explanation = ""))
         }
-        val highlights = listOf(ReviewHighlight(1, "值得改进的一步", "先看看实战 e4", lesson(1, listOf("d2d4", "d7d5", "c2c4"))),
+        val longerLine = listOf("d2d4", "d7d5", "c2c4", "e7e6", "b1c3", "g8f6", "c1g5", "f8e7", "e2e3", "e8g8", "g1f3", "b8d7")
+        val highlights = listOf(ReviewHighlight(1, "值得改进的一步", "先看看实战 e4", lesson(1, longerLine)),
             ReviewHighlight(3, "阶段回顾", "马的发展", lesson(3, listOf("g1f3", "b8c6"))))
         var closed = false
         val sounds = mutableListOf<SoundCue>()
@@ -59,7 +60,7 @@ class HighlightsWorkspaceTest {
             compose.onNodeWithTag("highlight-explanation").assertTextContains("建议白方走 d4", substring = true)
             compose.onNodeWithText("下一步").performClick()
             advance(32)
-            compose.onNodeWithTag("highlight-position").assertTextEquals("推荐路线 1 / 3")
+            compose.onNodeWithTag("highlight-position").assertTextEquals("推荐路线 1 / 12")
             compose.onNodeWithTag("highlight-explanation").assertTextContains("白方 d4", substring = true)
             compose.onNodeWithContentDescription("国际象棋棋盘，白方视角").assertIsDisplayed()
             advance(320)
@@ -67,6 +68,14 @@ class HighlightsWorkspaceTest {
             compose.onNodeWithText("上一步").assertIsDisplayed().performClick()
             advance(32)
             compose.onNodeWithTag("highlight-position").assertTextEquals("回到起点 · 看推荐走法")
+            repeat(longerLine.size) { compose.onNodeWithText("下一步").performClick(); advance(32) }
+            compose.onNodeWithTag("highlight-position").assertTextEquals("推荐路线 12 / 12")
+            compose.onNodeWithTag("highlight-explanation").assertTextContains("黑方 Nbd7", substring = true)
+            assertTrue(sounds.contains(SoundCue.CASTLE))
+            advance(4000)
+            compose.onNodeWithTag("highlight-position").assertTextEquals("推荐路线 12 / 12")
+            compose.onNodeWithText("上一步").performClick(); advance(32)
+            compose.onNodeWithTag("highlight-position").assertTextEquals("推荐路线 11 / 12")
             compose.onNodeWithText("下个点").assertIsDisplayed().performClick()
             advance(6000)
             compose.onNodeWithTag("highlight-position").assertTextEquals("第 3 步之前")

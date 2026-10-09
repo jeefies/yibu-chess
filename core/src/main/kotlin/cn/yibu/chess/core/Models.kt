@@ -110,6 +110,7 @@ data class MoveLesson(
     val depth: Int,
     val algorithmVersion: Int = 1,
     val steps: List<LessonStep> = emptyList(),
+    val playedExplanation: String = "",
 )
 
 @Serializable

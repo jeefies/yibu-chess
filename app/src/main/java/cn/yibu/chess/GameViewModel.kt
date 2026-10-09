@@ -262,8 +262,9 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
         val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
         currentCoroutineContext().ensureActive()
         if (token != generation || game.id != mutable.value.game.id) return
+        val previous = game.reviews.find { it.ply == ply }
         val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + review).sortedBy { it.ply },
-            lessons = mutable.value.game.lessons.filterNot { it.ply == ply && it.recommendedMove != review.bestMove })
+            lessons = mutable.value.game.lessons.filterNot { it.ply == ply && previous != review })
         val announceBrilliant = mutable.value.page == 0 && review.ply >= mutable.value.game.moves.size - 1 &&
             review.grade == Grade.BRILLIANT && !review.provisional && mutable.value.brilliantNotices.none { it.ply == ply }
         mutable.update { state ->
@@ -322,7 +323,8 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
     fun explainSelected() {
         val state = mutable.value
         if (state.page != 1 || state.cursor == 0) return
-        if (state.chosenLesson != null) { showLessonVariation(); return }
+        if (state.chosenLesson?.let { MoveCoach.canReuse(it, state.chosenReview) } == true ||
+            state.chosenLesson != null && state.chosenReview == null) { showLessonVariation(); return }
         if (!state.ready || state.busy) return
         val token = generation
         val ply = state.cursor
@@ -331,7 +333,9 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
             variationStep = 0, error = null, status = "深入讲解第 $ply 步…") }
         work = viewModelScope.launch {
             try {
-                if (state.chosenReview?.canReuseDeep(scoringElo(state.game, ply), stockfishClient.engineName) != true) analyzePly(ply, true, token)
+                // Updating an old explanation uses its saved engine evidence, without another cloud request.
+                if (state.chosenLesson == null && state.chosenReview?.canReuseDeep(scoringElo(state.game, ply), stockfishClient.engineName) != true)
+                    analyzePly(ply, true, token)
                 currentCoroutineContext().ensureActive()
                 if (token != generation || mutable.value.game.id != gameId) return@launch
                 val game = mutable.value.game

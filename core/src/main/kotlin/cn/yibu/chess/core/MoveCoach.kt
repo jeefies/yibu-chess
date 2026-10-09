@@ -1,6 +1,7 @@
 package cn.yibu.chess.core
 
 import com.github.bhlangonijr.chesslib.Piece
+import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.PieceType
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Square
@@ -8,13 +9,22 @@ import com.github.bhlangonijr.chesslib.move.Move
 
 /** Offline coaching: engine supplies the line; board facts supply the explanation. */
 object MoveCoach {
+    const val ALGORITHM_VERSION = 3
+    const val MAX_VARIATION_PLIES = 16
+
+    fun canReuse(lesson: MoveLesson, review: MoveReview?): Boolean =
+        lesson.algorithmVersion == ALGORITHM_VERSION && (review == null ||
+            lesson.recommendedMove == review.bestMove && lesson.depth == review.best.depth &&
+                lesson.variation == review.best.pv.take(MAX_VARIATION_PLIES))
+
     fun explain(history: List<String>, review: MoveReview): MoveLesson {
         require(review.ply == history.size + 1)
-        val line = ChessRules.legalVariation(history, review.best.pv.take(10))
+        val line = ChessRules.legalVariation(history, review.best.pv.take(MAX_VARIATION_PLIES))
         require(line.isNotEmpty()) { "引擎没有返回合法推荐，请重试本步讲解" }
         val actor = if (history.size % 2 == 0) "白方" else "黑方"
         val san = ChessRules.san(history, line.first())
         val reasons = facts(history, line.first())
+        val playedExplanation = comparison(history, review, line)
         val scoreNote = when {
             review.best.mate != null && review.best.mate > 0 -> "引擎在这条最佳防守变化中找到将杀路线，优先保持连续的威胁。"
             review.best.mate != null && review.best.mate < 0 -> "引擎仍判断本方会被将杀；这是当前防守候选，不能据此认为已经脱险。"
@@ -25,7 +35,7 @@ object MoveCoach {
             append("建议${actor}走 $san。")
             append(reasons.joinToString("；").ifEmpty { "通过${action(history, line.first())}调整站位，衔接下方参考变化" })
             append("。\n").append(scoreNote)
-            if (line.first() != review.uci) append("\n实战走的是 ${review.san}，可跟走下方变化，比较两种走法后的局面。")
+            append("\n\n").append(playedExplanation)
         }
         val steps = annotatedSteps(history, line)
         val plan = buildString {
@@ -37,22 +47,132 @@ object MoveCoach {
             else if (line.size == 1) append("本次搜索没有给出更长的可靠变化，暂不推测对手的下一着。\n")
             append("这是引擎主变化的参考路线。对手若改走，先重新检查将军、吃子与直接威胁，不能机械照走。")
         }
-        return MoveLesson(review.ply, line.first(), why, plan, line, review.best.depth, algorithmVersion = 2, steps = steps)
+        return MoveLesson(review.ply, line.first(), why, plan, line, review.best.depth,
+            algorithmVersion = ALGORITHM_VERSION, steps = steps, playedExplanation = playedExplanation)
+    }
+
+    private fun comparison(history: List<String>, review: MoveReview, recommended: List<String>): String {
+        val confirmed = !review.provisional && review.grade != Grade.UNSTABLE && review.algorithmVersion == 3 &&
+            review.best.depth >= 12 && review.best.depth == review.played.depth
+        val worse = confirmed && recommended.first() != review.uci &&
+            (review.pointsLost >= .04 || review.grade in listOf(Grade.INACCURACY, Grade.MISTAKE, Grade.BLUNDER))
+        val played = ChessRules.legalVariation(history, review.played.pv.take(8))
+            .takeIf { it.firstOrNull() == review.uci }.orEmpty()
+        val side = ChessRules.board(history).sideToMove
+        return buildString {
+            if (recommended.first() == review.uci) {
+                append("实战与推荐一致：${review.san}。重点是理解对手的下一着，保持这个计划，而不是只记住这一步。")
+                return@buildString
+            }
+            append("实战走的是 ${review.san}。")
+            if (!confirmed) append("本步评价尚未确认；先比较两条参考变化，暂不把分值差认定为失误。")
+            else if (!worse) append("与推荐有差别，但当前证据不足以把它说成明显失误。")
+            else {
+                append("\n为什么这步有问题：")
+                when {
+                    review.played.mate != null && review.played.mate < 0 && (review.best.mate == null || review.best.mate >= 0) ->
+                        append("这步给对手留下了强制将杀路线；即使本方接下来尽力防守，当前搜索仍判断王无法逃脱。")
+                    review.best.mate != null && review.best.mate > 0 && (review.played.mate ?: 0) <= 0 ->
+                        append("原本存在将杀路线，这步没有保留它，让对手获得了防守机会。")
+                    else -> append("本方的局面质量下降，关键要看对手怎样回应，而不是只看这步是否吃子或将军。")
+                }
+                if (review.best.cp != null && review.played.cp != null) {
+                    append("从行棋方视角，最佳与实战的搜索评价分别为 ${review.best.display()}、${review.played.display()}；")
+                    append("这是局面评价，不是确定会损失这么多兵。")
+                }
+            }
+            if (played.size >= 2) {
+                val replyRoot = history + played.first()
+                val replyBoard = ChessRules.board(replyRoot)
+                val replyMove = Move(played[1], replyBoard.sideToMove)
+                val victim = capturedPiece(replyBoard, replyMove)
+                if (worse && victim != Piece.NONE) {
+                    val square = capturedSquare(replyBoard, replyMove).toString().lowercase()
+                    append("\n具体交换：")
+                    if (review.uci.substring(2, 4) == square)
+                        append("把${ChessRules.pieceChinese(victim)}走到 $square 后，对手可以直接吃它。")
+                    else append("这步没有保住 $square 的${ChessRules.pieceChinese(victim)}，对手可以直接吃它。")
+                    val recapture = ChessRules.board(replyRoot + played[1]).legalMoves().firstOrNull { it.to == replyMove.to }
+                    if (recapture == null) {
+                        append("本方随后没有合法的立即回吃。")
+                        if (material(ChessRules.board(replyRoot + played[1]), side) < material(ChessRules.board(history), side))
+                            append("到这里子力已经净减少，不能只看第一着吃到了什么。")
+                        else append("但双方可能已经交换了等值子力，不能仅因被回吃就断言亏子。")
+                    }
+                    else append("本方虽可用 ${ChessRules.san(replyRoot + played[1], recapture.toString().lowercase())} 回吃，但需要把后续交换和王的安全一起算完。")
+                }
+                append("\n对手如何应对：${ChessRules.san(replyRoot, played[1])}（${action(replyRoot, played[1])}）。")
+                append(facts(replyRoot, played[1]).take(3).joinToString("；").ifEmpty { "调整站位，准备下一次接触" }).append("。")
+                val tactical = played.drop(2).mapIndexedNotNull { i, uci ->
+                    val root = history + played.take(i + 2)
+                    val board = ChessRules.board(root)
+                    val move = Move(uci, board.sideToMove)
+                    val captured = capturedPiece(board, move)
+                    if (board.sideToMove != side && captured != Piece.NONE && pieceValue(captured) >= 3)
+                        "${ChessRules.san(root, uci)} 吃掉${move.to.toString().lowercase()}的${ChessRules.pieceChinese(captured)}"
+                    else null
+                }.firstOrNull()
+                if (tactical != null) append("后续还要防范 $tactical。")
+                val delta = material(ChessRules.board(history + played), side) - material(ChessRules.board(history), side)
+                if (delta <= -1 && worse) {
+                    append("\n实战参考变化走完 ${played.size} 着后，本方相对本步之前净少了 ${-delta} 点子力（兵1、马/象3、车5、后9，已计入双方吃子和升变）。")
+                    append("这是这条路线的结果，后续仍可能回吃，不能当作所有应对都必然如此。")
+                }
+                append("\n实战后续参考：${ChessRules.variationSan(history, played).joinToString(" → ")}。")
+            } else append("\n引擎没有给出合法的实战后续，暂不能具体断言对手怎样惩罚这步；可重新复评本步。")
+            append("\n推荐的改进：${ChessRules.san(history, recommended.first())}，")
+            append(facts(history, recommended.first()).take(3).joinToString("；").ifEmpty { action(history, recommended.first()) }).append("。")
+            val length = minOf(played.size, recommended.size)
+            if (worse && length >= 2) {
+                val advantage = material(ChessRules.board(history + recommended.take(length)), side) -
+                    material(ChessRules.board(history + played.take(length)), side)
+                if (advantage >= 1) append("比较两条路线各前 $length 着，推荐路线的净子力多 $advantage 点；也要继续看王的安全和能否回吃。")
+            }
+            append("\n下次落子前：先找对手的将军、吃子和直接威胁，再问自己这步之后最强的回应是什么；发现威胁后，比较移开、保护、交换或制造更紧急的威胁。")
+        }
+    }
+
+    private fun pieceValue(piece: Piece): Int = when (piece.pieceType) {
+        PieceType.PAWN -> 1; PieceType.KNIGHT, PieceType.BISHOP -> 3
+        PieceType.ROOK -> 5; PieceType.QUEEN -> 9; else -> 0
+    }
+    private fun material(board: Board, side: Side): Int = Square.entries.filter { it != Square.NONE }.sumOf {
+        val piece = board.getPiece(it)
+        pieceValue(piece) * if (piece.pieceSide == side) 1 else -1
+    }
+    private fun capturedPiece(board: Board, move: Move): Piece {
+        return board.getPiece(capturedSquare(board, move))
+    }
+    private fun capturedSquare(board: Board, move: Move): Square {
+        val piece = board.getPiece(move.from)
+        return if (piece.pieceType == PieceType.PAWN && move.from.ordinal % 8 != move.to.ordinal % 8 && board.getPiece(move.to) == Piece.NONE)
+            Square.squareAt(move.to.ordinal + if (board.sideToMove == Side.WHITE) -8 else 8)
+        else move.to
     }
 
     /** Old saved lessons get annotations locally, without repeating an engine search. */
-    fun annotatedSteps(history: List<String>, line: List<String>): List<LessonStep> =
-        ChessRules.legalVariation(history, line).mapIndexed { index, uci ->
-            val root = history + line.take(index)
+    fun annotatedSteps(history: List<String>, line: List<String>): List<LessonStep> {
+        val safe = ChessRules.legalVariation(history, line)
+        return safe.mapIndexed { index, uci ->
+            val root = history + safe.take(index)
             val side = if (root.size % 2 == 0) "白方" else "黑方"
             val label = when (index) {
                 0 -> "先手计划"
                 1 -> "对手关键应对"
                 else -> if (index % 2 == 0) "继续思路" else "对手防守"
             }
-            val note = facts(root, uci).take(2).joinToString("；").ifEmpty { "调整站位，衔接下一步变化" }
-            LessonStep(uci, "$label：$side ${ChessRules.san(root, uci)}（${action(root, uci)}）", "$note。")
+            val note = buildString {
+                append(facts(root, uci).take(4).joinToString("；").ifEmpty { "通过${action(root, uci)}调整站位，衔接下一步变化" }).append("。")
+                safe.getOrNull(index + 1)?.let { reply ->
+                    append("\n下一着参考：${ChessRules.san(root + uci, reply)}，")
+                    append(facts(root + uci, reply).take(2).joinToString("；").ifEmpty { action(root + uci, reply) }).append("。")
+                }
+                if (index == safe.lastIndex && ChessRules.outcome(history + safe) == null)
+                    append("搜索展示到这里，接下来重新检查将军、吃子和未保护的棋子，不代表计划已经完成。")
+            }
+            LessonStep(uci, "$label：$side ${ChessRules.san(root, uci)}（${action(root, uci)}）", note)
         }
+    }
 
     private fun action(history: List<String>, uci: String): String {
         val board = ChessRules.board(history)
@@ -72,7 +192,7 @@ object MoveCoach {
         val to = move.to.ordinal
         val isPawn = piece.pieceType == PieceType.PAWN
         val enPassant = isPawn && from % 8 != to % 8 && before.getPiece(move.to) == Piece.NONE
-        val captured = if (enPassant) before.getPiece(Square.squareAt(to + if (side == Side.WHITE) -8 else 8)) else before.getPiece(move.to)
+        val captured = capturedPiece(before, move)
         val after = ChessRules.board(history + uci)
         val moved = after.getPiece(move.to)
         val result = mutableListOf<String>()
@@ -83,6 +203,10 @@ object MoveCoach {
         if (move.promotion != Piece.NONE) result += "兵到底线升变为${ChessRules.pieceChinese(move.promotion)}，增加可用子力"
         if (captured != Piece.NONE) result += "${if (enPassant) "吃掉相邻线的兵（吃过路兵）" else "直接吃掉${move.to.toString().lowercase()}的${ChessRules.pieceChinese(captured)}"}；是否能保持子力收益还要看对方回吃"
         if (after.isKingAttacked) result += "将军迫使对手先处理王的威胁，为后续变化争取节奏"
+        val recapture = if (captured != Piece.NONE) after.legalMoves().firstOrNull { it.to == move.to } else null
+        if (recapture != null) result += "对方可以用 ${ChessRules.san(history + uci, recapture.toString().lowercase())} 回吃，先算清交换，不能只数眼前吃到的子"
+        if (before.squareAttackedBy(move.from, side.flip()) != 0L && after.squareAttackedBy(move.to, side.flip()) == 0L)
+            result += "把${ChessRules.pieceChinese(piece)}移出对方的攻击范围，减少它被直接吃掉的风险"
         val enemies = Square.entries.filter { it != Square.NONE && after.getPiece(it) != Piece.NONE && after.getPiece(it).pieceSide != side }
         val targets = enemies.filter { after.squareAttackedBy(it, side) and move.to.bitboard != 0L }
         val valuable = targets.filter { after.getPiece(it).pieceType in listOf(PieceType.QUEEN, PieceType.ROOK, PieceType.KING) }

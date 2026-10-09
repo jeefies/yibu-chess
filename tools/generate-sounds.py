@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Original offline chess/UI effects. Deterministic mono 44.1 kHz PCM; no external samples."""
+"""Original dry chess-piece impacts and restrained UI cues; no external samples.
+
+0.8.1: filtered transients + inharmonic decaying modes approximate a plastic/wood
+piece landing on a board. This is a similar sound style, not Chess.com recordings.
+Deterministic mono 44.1 kHz PCM with short attack/release and no clipping.
+"""
 from pathlib import Path
 import math
 import random
@@ -20,12 +25,20 @@ def render(name, duration, notes=(), hits=()):
             tone = math.sin(2 * math.pi * frequency * t) + .22 * math.sin(2 * math.pi * frequency * 2.01 * t)
             samples[int(start * RATE) + i] += tone * envelope * volume
     for start, frequency, length, volume in hits:
-        noise = 0.0
+        low = 0.0
+        modes = [(1.0, .28, .016), (2.73, .17, .010), (4.19, .12, .007), (6.37, .08, .004)]
+        phases = [rng.uniform(-math.pi, math.pi) for _ in modes]
         for i in range(min(int(length * RATE), len(samples) - int(start * RATE))):
             t = i / RATE
-            noise = .5 * noise + .5 * rng.uniform(-1, 1)
-            envelope = min(1, t / .001) * math.exp(-7 * t / length)
-            samples[int(start * RATE) + i] += (noise * .65 + math.sin(2 * math.pi * frequency * t) * .35) * envelope * volume
+            white = rng.uniform(-1, 1)
+            low = .72 * low + .28 * white
+            transient = (white - low) * .48 * math.exp(-t / .0035)
+            body = low * .30 * math.exp(-t / .012)
+            resonances = sum(amplitude * math.sin(2 * math.pi * frequency * ratio * t + phase)
+                             * math.exp(-t / decay)
+                             for (ratio, amplitude, decay), phase in zip(modes, phases))
+            envelope = min(1, t / .0003) * min(1, (length - t) / .005)
+            samples[int(start * RATE) + i] += (transient + body + resonances) * envelope * volume
     peak = max(abs(s) for s in samples)
     scale = min(1, .8 / peak) if peak else 1
     data = b"".join(struct.pack("<h", round(s * scale * 32767)) for s in samples)
@@ -38,25 +51,25 @@ def render(name, duration, notes=(), hits=()):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    render("move", .09, hits=[(0, 420, .08, .65)])
-    render("capture", .15, hits=[(0, 220, .12, .75), (.032, 680, .08, .3)])
-    render("castle", .2, hits=[(0, 380, .08, .6), (.08, 520, .08, .6)])
-    render("promote", .5, [(0, 659, .22, .26), (.09, 988, .23, .25), (.18, 1319, .27, .22)], [(0, 400, .08, .55)])
-    render("check", .32, [(0, 880, .16, .3), (.11, 1175, .19, .3)])
-    render("checkmate", .55, [(0, 698, .22, .28), (.12, 523, .24, .27), (.24, 392, .28, .28)])
-    render("resign", .28, [(0, 330, .17, .28), (.10, 247, .16, .25)])
-    render("shatter", .48, hits=[(i * .027, 1000 + i * 170, .15, .48 - i * .035) for i in range(8)])
-    render("win", .65, [(0, 523, .22, .24), (.12, 659, .22, .25), (.24, 784, .25, .25), (.36, 1047, .28, .26)])
-    render("lose", .58, [(0, 392, .22, .24), (.13, 330, .23, .25), (.26, 262, .30, .25)])
-    render("draw", .4, [(0, 440, .2, .23), (.15, 440, .23, .23)])
-    render("start", .35, [(0, 659, .15, .2), (.1, 988, .23, .22)])
-    render("select", .04, hits=[(0, 1600, .032, .18)])
-    render("illegal", .2, [(0, 160, .1, .25), (.08, 150, .1, .22)])
-    render("navigate", .07, hits=[(0, 850, .06, .24)])
-    render("confirm", .24, [(0, 784, .1, .20), (.08, 1047, .14, .2)])
-    render("delete", .2, hits=[(0, 340, .12, .35), (.05, 240, .12, .2)])
-    render("error", .26, [(0, 220, .13, .22), (.1, 185, .14, .22)])
-    render("brilliant", .64, [(i * .08, frequency, .27, .19) for i, frequency in enumerate([1047, 1319, 1568, 2093, 2637])])
+    render("move", .10, hits=[(0, 410, .09, .95)])
+    render("capture", .15, hits=[(0, 235, .11, 1.0), (.018, 740, .08, .42)])
+    render("castle", .18, hits=[(0, 410, .08, .86), (.073, 365, .09, .82)])
+    render("promote", .28, [( .045, 1047, .15, .14), (.105, 1568, .17, .13)], [(0, 410, .09, .95)])
+    render("check", .13, hits=[(0, 320, .09, .96), (.025, 1180, .07, .24)])
+    render("checkmate", .28, hits=[(0, 330, .10, .92), (.095, 180, .12, .78)])
+    render("resign", .20, hits=[(0, 260, .10, .66), (.065, 190, .12, .43)])
+    render("shatter", .36, hits=[(i * .023, 900 + i * 193, .12, .70 - i * .055) for i in range(8)])
+    render("win", .48, [(0, 523, .18, .18), (.07, 659, .18, .16), (.14, 784, .20, .15), (.23, 1047, .24, .16)])
+    render("lose", .35, [(0, 392, .15, .16), (.075, 330, .16, .15), (.15, 262, .19, .16)])
+    render("draw", .26, hits=[(0, 560, .09, .45), (.105, 560, .10, .40)])
+    render("start", .22, hits=[(0, 380, .09, .58), (.075, 690, .10, .48)])
+    render("select", .045, hits=[(0, 1350, .033, .30)])
+    render("illegal", .16, hits=[(0, 200, .08, .53), (.055, 175, .09, .44)])
+    render("navigate", .055, hits=[(0, 820, .05, .40)])
+    render("confirm", .17, hits=[(0, 650, .08, .38), (.055, 1020, .10, .34)])
+    render("delete", .16, hits=[(0, 340, .09, .50), (.055, 210, .10, .37)])
+    render("error", .19, hits=[(0, 180, .10, .52), (.068, 155, .11, .42)])
+    render("brilliant", .46, [(i * .055, frequency, .23, .12) for i, frequency in enumerate([1047, 1319, 1568, 2093, 2637])])
     print(f"Generated {len(list(OUT.glob('sfx_*.wav')))} original offline sound effects")
 
 
