@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.yibu.chess.AppState
 import cn.yibu.chess.BuildConfig
+import cn.yibu.chess.diagnostics.AnalysisTimings
 import cn.yibu.chess.GameViewModel
 import cn.yibu.chess.core.*
 import java.text.SimpleDateFormat
@@ -64,7 +65,15 @@ fun ChessApp(model: GameViewModel) {
 }
 
 @Composable
+internal fun AnalysisFrameTiming(requestId: String?) {
+    LaunchedEffect(requestId) {
+        requestId?.let { id -> withFrameNanos { AnalysisTimings.frame(id) } }
+    }
+}
+
+@Composable
 internal fun ChessScreen(state: AppState, model: GameViewModel) {
+    AnalysisFrameTiming(state.lastAnalysisTimingId)
     val context = LocalContext.current
     var newDialog by remember { mutableStateOf(false) }
     var aboutDialog by remember { mutableStateOf(false) }
@@ -239,6 +248,8 @@ internal fun ChessScreen(state: AppState, model: GameViewModel) {
             confirmButton = { TextButton(onClick = feedbackClick { model.resign(); resignDialog = false }) { Text("认输") } }, dismissButton = { TextButton(onClick = feedbackClick { resignDialog = false }) { Text("继续对弈") } })
         if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("关于弈步 · ${BuildConfig.VERSION_NAME}") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = feedbackClick { context.startActivity(model.shareAnalysisTimings()) }) { Text("导出分析耗时") }
+                Text("先复评几步，再导出记录。本次打开 App 期间保留最近120次分析，用于区分接口等待、结果处理与保存耗时。重启 App 会清空这份计时记录。", color = Muted, fontSize = 12.sp)
                 Text("拟人对手：Maia-3 5M\n用人类棋谱训练，按走法概率选择，近期重复开局会适度减权。Maia 模型离线内置。最强挑战对手与深度复盘使用云端 Stockfish 19 服务（需在对局设置中配置 Access Token）。", fontSize = 13.sp)
                 Text("新局默认随机白黑，点击即开始。可在对局设置里主动选择，选择会记住。对弈时只提示经过深度验证的 !!，附上弃子原因和参考变化；完整评级与推荐走法在复盘查看。", fontSize = 13.sp)
                 Text("音效随 APK 离线提供，始终开启并跟随手机媒体音量。落子、吃子、易位、升变、将军、终局、王碎裂、复盘和界面操作均有声音。", fontSize = 13.sp)

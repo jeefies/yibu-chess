@@ -57,7 +57,7 @@ object RuntimeDiagnostics {
                 report.put("history_error", "${e.javaClass.simpleName}: ${e.message}")
             }
         }
-        return report.put("recent_process_exits", exits).toString(2)
+        return report.put("recent_process_exits", exits).put("analysis_timings", AnalysisTimings.snapshot()).toString(2)
     }
 
     internal fun readTrace(input: InputStream): Pair<ByteArray, Boolean> = input.use { stream ->

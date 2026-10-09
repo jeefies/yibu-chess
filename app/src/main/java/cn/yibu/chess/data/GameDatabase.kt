@@ -5,6 +5,8 @@ import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import cn.yibu.chess.core.*
+import cn.yibu.chess.diagnostics.AnalysisTimings
+import android.os.SystemClock
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -73,7 +75,12 @@ class GameRepository(context: Context, private val database: GameDatabase = Game
     private val dao = database.games()
     private val ratings = database.ratings()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-    val games = dao.observe().map { rows -> rows.mapNotNull { runCatching { json.decodeFromString<GameRecord>(it.payload) }.getOrNull() } }
+    val games = dao.observe().map { rows ->
+        val start = SystemClock.elapsedRealtimeNanos()
+        val decoded = rows.mapNotNull { runCatching { json.decodeFromString<GameRecord>(it.payload) }.getOrNull() }
+        AnalysisTimings.reload(start, rows.size, rows.sumOf { it.payload.length.toLong() })
+        decoded
+    }
     val profiles = ratings.observeProfile().map { it?.value() ?: PlayerProfile() }
     suspend fun profile(): PlayerProfile = ratings.profile()?.value() ?: PlayerProfile()
     suspend fun latest(): GameRecord? = dao.latest()?.let { runCatching { json.decodeFromString<GameRecord>(it.payload) }.getOrNull() }

@@ -11,6 +11,8 @@ import cn.yibu.chess.audio.ChessSounds
 import cn.yibu.chess.data.GameRepository
 import cn.yibu.chess.data.PlayPreferences
 import cn.yibu.chess.diagnostics.RuntimeDiagnostics
+import cn.yibu.chess.diagnostics.AnalysisTimings
+import cn.yibu.chess.diagnostics.AnalysisTiming
 import cn.yibu.chess.engine.MaiaModel
 import cn.yibu.chess.engine.RemoteStockfishClient
 import kotlinx.coroutines.CancellationException
@@ -51,6 +53,7 @@ data class AppState(
     val kingBreak: KingBreak? = null,
     val highlightsOpen: Boolean = false,
     val highlights: List<ReviewHighlight> = emptyList(),
+    val lastAnalysisTimingId: String? = null,
 ) {
     val boardHistory: List<String> get() = when {
         page != 1 -> game.moves
@@ -185,7 +188,11 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
         // Concurrent cancellation/navigation must not overwrite a newer snapshot.
         val current = mutable.value.game
         val latest = if (current.id == game.id) current else game
-        val saved = withContext(Dispatchers.IO) { repository.save(latest) }
+        val timing = currentCoroutineContext()[AnalysisTiming]
+        val saved = withContext(Dispatchers.IO) {
+            val started = timing?.now()
+            try { repository.save(latest) } finally { started?.let { timing?.duration("database_ms", it) } }
+        }
         mutable.update { state ->
             val profile = if (saved.profile.ratedGames >= state.profile.ratedGames) saved.profile else state.profile
             state.copy(profile = profile, game = if (state.game.id == saved.game?.id) state.game.copy(ratingChange = saved.game?.ratingChange) else state.game)
@@ -259,21 +266,39 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
             if (deep) "深度复评 $ply / ${game.moves.size}" else "正在分析第 ${(ply + 1) / 2} 回合…"
         } else "后台分析第 $ply 步${if (game.finished) "" else " · 可继续走棋"}") }
         val scoringElo = scoringElo(game, ply)
-        val review = withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
-        currentCoroutineContext().ensureActive()
-        if (token != generation || game.id != mutable.value.game.id) return
-        val previous = game.reviews.find { it.ply == ply }
-        val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + review).sortedBy { it.ply },
-            lessons = mutable.value.game.lessons.filterNot { it.ply == ply && previous != review })
-        val announceBrilliant = mutable.value.page == 0 && review.ply >= mutable.value.game.moves.size - 1 &&
-            review.grade == Grade.BRILLIANT && !review.provisional && mutable.value.brilliantNotices.none { it.ply == ply }
-        mutable.update { state ->
-            val notices = state.brilliantNotices.filterNot { it.ply == ply }
-            state.copy(game = updated, brilliantNotices = if (state.page == 0 && review.ply >= state.game.moves.size - 1 && review.grade == Grade.BRILLIANT && !review.provisional)
-                (notices + review).sortedBy { it.ply }.takeLast(2) else notices)
+        val timing = AnalysisTimings.begin(getApplication(), game.id, ply, deep)
+        timing.put("scoring_elo", scoringElo)
+        val review = try {
+            withContext(timing) {
+                val analysisStarted = timing.now()
+                val result = try {
+                    withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
+                } finally { timing.duration("analysis_ms", analysisStarted) }
+                currentCoroutineContext().ensureActive()
+                if (token != generation || game.id != mutable.value.game.id) return@withContext null
+                val previous = game.reviews.find { it.ply == ply }
+                val updated = mutable.value.game.copy(reviews = (mutable.value.game.reviews.filterNot { it.ply == ply } + result).sortedBy { it.ply },
+                    lessons = mutable.value.game.lessons.filterNot { it.ply == ply && previous != result })
+                val announceBrilliant = mutable.value.page == 0 && result.ply >= mutable.value.game.moves.size - 1 &&
+                    result.grade == Grade.BRILLIANT && !result.provisional && mutable.value.brilliantNotices.none { it.ply == ply }
+                mutable.update { state ->
+                    val notices = state.brilliantNotices.filterNot { it.ply == ply }
+                    state.copy(game = updated, brilliantNotices = if (state.page == 0 && result.ply >= state.game.moves.size - 1 && result.grade == Grade.BRILLIANT && !result.provisional)
+                        (notices + result).sortedBy { it.ply }.takeLast(2) else notices)
+                }
+                if (announceBrilliant) playFeedback(SoundCue.BRILLIANT)
+                val saveStarted = timing.now()
+                try { persist(updated) } finally { timing.duration("save_ms", saveStarted) }
+                mutable.update { it.copy(lastAnalysisTimingId = timing.id) }
+                result
+            }
+        } catch (e: CancellationException) {
+            timing.finish("cancelled"); throw e
+        } catch (e: Exception) {
+            timing.finish("failed", e.javaClass.simpleName); throw e
         }
-        if (announceBrilliant) playFeedback(SoundCue.BRILLIANT)
-        persist(updated)
+        timing.finish(if (review == null) "discarded" else "success")
+        if (review == null) return
         // Only a promising sacrifice merits live verification; ordinary grades stay in review.
         if (!deep && review.pointsLost < 0.02 && ChessRules.legal(game.moves.take(ply - 1)).size > 1) {
             val sacrifice = (review.playedExpectedPoints ?: 0.5) >= 0.5 && ChessRules.substantialSacrifice(game.moves.take(ply - 1), review.played.pv)
@@ -503,6 +528,16 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
         return Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
             type = "application/json"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }, "导出运行诊断")
+    }
+    fun shareAnalysisTimings(): Intent {
+        val application = getApplication<Application>()
+        val dir = File(application.cacheDir, "exports").apply { mkdirs() }
+        val file = File(dir, "yibu-analysis-timings.json")
+        file.writeText(AnalysisTimings.export(application))
+        val uri = FileProvider.getUriForFile(application, "cn.yibu.chess.files", file)
+        return Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, "导出分析耗时")
     }
     fun pauseForBackground() {
         sounds.pause()

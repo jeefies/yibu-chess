@@ -1,7 +1,10 @@
 package cn.yibu.chess.engine
 
 import cn.yibu.chess.core.*
+import cn.yibu.chess.diagnostics.AnalysisTiming
+import cn.yibu.chess.diagnostics.HttpTimingListener
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -80,16 +83,19 @@ internal data class EvaluateRespDto(val completedDepth: Int, val best: EvalItemD
 @Serializable
 internal data class AnalyzeMoveRespDto(val best: EvalItemDto? = null, val played: EvalItemDto? = null,
     val second: EvalItemDto? = null, val previousBest: EvalItemDto? = null,
-    val comparison: ComparisonResultDto, val engine: EngineInfoDto? = null)
+    val comparison: ComparisonResultDto, val engine: EngineInfoDto? = null, val stats: JsonElement? = null)
 
 class RemoteStockfishClient(
     private val tokenProvider: () -> String,
     private val baseUrl: String = "https://chess.jeefy.top",
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS).callTimeout(35, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
 ) : StockfishService {
+    private val client = client.newBuilder().eventListenerFactory { call ->
+        HttpTimingListener(call.request().tag(AnalysisTiming::class.java))
+    }.build()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     @Volatile var engineName: String = "Stockfish 19"
@@ -119,25 +125,37 @@ class RemoteStockfishClient(
     }
 
     override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis {
+        val timing = currentCoroutineContext()[AnalysisTiming]
+        val preparation = timing?.now()
         require(playedMove in ChessRules.legal(history)) { "待分析走法非法" }
         val dto = AnalyzeMoveReqDto(PositionDto(moves = history), playedMove, if (deep) "deep" else "fast")
-        val request = request("analyze-move").post(json.encodeToString(dto).toRequestBody(jsonMediaType)).build()
-        val resp = json.decodeFromString<AnalyzeMoveRespDto>(executeRequest(request))
-        val bestDto = requireNotNull(resp.best) { "最佳走法尚未分析完成，请重试" }
-        val playedDto = requireNotNull(resp.played) { "实战走法尚未分析完成，请重试" }
-        val best = bestDto.toEvaluation(history)
-        val played = playedDto.toEvaluation(history)
-        require(played.pv.first() == playedMove) { "远端分析结果与实战走法不一致" }
-        val second = resp.second?.takeIf { it.score?.bound == "exact" && it.depth == best.depth }
-            ?.toEvaluation(history, 2)
-        val previous = resp.previousBest?.takeIf { it.score?.bound == "exact" && it.depth < best.depth }
-            ?.toEvaluation(history)
-        val comp = resp.comparison
-        engineName = resp.engine?.label() ?: engineName
-        return RemoteMoveAnalysis(best, played, second, previous,
-            canCompare = comp.canCompare && bestDto.score?.bound == "exact" && playedDto.score?.bound == "exact",
-            commonDepth = comp.commonDepth ?: 0, diffCp = comp.diffCp, diffWdlLoss = comp.diffWdlLoss,
-            engineName = engineName)
+        val builder = request("analyze-move").post(json.encodeToString(dto).toRequestBody(jsonMediaType))
+        if (timing != null) builder.header("X-Request-ID", timing.id).tag(AnalysisTiming::class.java, timing)
+        val request = builder.build()
+        preparation?.let { timing?.duration("request_preparation_ms", it) }
+        val content = executeRequest(request)
+        val processing = timing?.now()
+        try {
+            val resp = json.decodeFromString<AnalyzeMoveRespDto>(content)
+            timing?.serverStats(resp.stats)
+            val bestDto = requireNotNull(resp.best) { "最佳走法尚未分析完成，请重试" }
+            val playedDto = requireNotNull(resp.played) { "实战走法尚未分析完成，请重试" }
+            val best = bestDto.toEvaluation(history)
+            val played = playedDto.toEvaluation(history)
+            require(played.pv.first() == playedMove) { "远端分析结果与实战走法不一致" }
+            val second = resp.second?.takeIf { it.score?.bound == "exact" && it.depth == best.depth }
+                ?.toEvaluation(history, 2)
+            val previous = resp.previousBest?.takeIf { it.score?.bound == "exact" && it.depth < best.depth }
+                ?.toEvaluation(history)
+            val comp = resp.comparison
+            engineName = resp.engine?.label() ?: engineName
+            timing?.put("best_depth", best.depth)
+            timing?.put("played_depth", played.depth)
+            return RemoteMoveAnalysis(best, played, second, previous,
+                canCompare = comp.canCompare && bestDto.score?.bound == "exact" && playedDto.score?.bound == "exact",
+                commonDepth = comp.commonDepth ?: 0, diffCp = comp.diffCp, diffWdlLoss = comp.diffWdlLoss,
+                engineName = engineName)
+        } finally { processing?.let { timing?.duration("response_processing_ms", it) } }
     }
 
     override fun stop() { client.dispatcher.cancelAll() }
@@ -164,23 +182,29 @@ class RemoteStockfishClient(
         return IOException(if (token.isNotEmpty()) message.replace(token, "[已隐藏]") else message)
     }
 
-    private suspend fun executeRequest(request: Request): String = suspendCancellableCoroutine { cont ->
-        val call = client.newCall(request)
-        cont.invokeOnCancellation { call.cancel() }
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                if (cont.isActive) cont.resumeWithException(e)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                val result = runCatching {
-                    response.use {
-                        val content = it.body?.string().orEmpty()
-                        if (!it.isSuccessful) throw httpError(request, it, content)
-                        content
-                    }
+    private suspend fun executeRequest(request: Request): String {
+        val timing = request.tag(AnalysisTiming::class.java)
+        val started = timing?.now()
+        return try { suspendCancellableCoroutine { cont ->
+            val call = client.newCall(request)
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWithException(e)
                 }
-                if (cont.isActive) cont.resumeWith(result)
-            }
-        })
+                override fun onResponse(call: Call, response: Response) {
+                    val result = runCatching {
+                        response.use {
+                            timing?.put("http_status", it.code)
+                            timing?.serverTiming(it.header("Server-Timing"))
+                            val content = it.body?.string().orEmpty()
+                            if (!it.isSuccessful) throw httpError(request, it, content)
+                            content
+                        }
+                    }
+                    if (cont.isActive) cont.resumeWith(result)
+                }
+            })
+        } } finally { started?.let { timing?.duration("http_ms", it) } }
     }
 }
