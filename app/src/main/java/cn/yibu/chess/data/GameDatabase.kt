@@ -60,9 +60,13 @@ abstract class GameDatabase : RoomDatabase() {
             }
         }
         @Volatile private var instance: GameDatabase? = null
-        fun get(context: Context): GameDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, GameDatabase::class.java, "yibu-chess.db")
+        fun get(context: Context): GameDatabase = instance?.takeIf { it.isOpen } ?: synchronized(this) {
+            instance?.takeIf { it.isOpen } ?: Room.databaseBuilder(context.applicationContext, GameDatabase::class.java, "yibu-chess.db")
                 .addMigrations(MIGRATION_1_2).build().also { instance = it }
+        }
+        fun resetForTests() = synchronized(this) {
+            instance?.close()
+            instance = null
         }
     }
 }

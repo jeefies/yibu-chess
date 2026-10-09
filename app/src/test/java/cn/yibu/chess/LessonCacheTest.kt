@@ -9,6 +9,7 @@ import cn.yibu.chess.data.PlayPreferences
 import cn.yibu.chess.engine.RemoteStockfishClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class LessonCacheTest {
+    @After fun tearDown() { cn.yibu.chess.data.GameDatabase.resetForTests() }
     private fun waitFor(model: GameViewModel, condition: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         while (!condition() && System.nanoTime() < deadline) {
