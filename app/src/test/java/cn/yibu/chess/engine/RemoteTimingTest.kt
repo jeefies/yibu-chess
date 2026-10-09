@@ -3,6 +3,7 @@ package cn.yibu.chess.engine
 import cn.yibu.chess.diagnostics.AnalysisTiming
 import cn.yibu.chess.diagnostics.AnalysisTimings
 import kotlinx.coroutines.*
+import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -33,6 +34,23 @@ class RemoteTimingTest {
     }
     private fun body(stats: String = "null") = """{"best":{"depth":22,"score":{"type":"cp","value":34},"pv":["e7e5"]},"played":{"depth":22,"score":{"type":"cp","value":28},"pv":["c7c5"]},"comparison":{"canCompare":true,"commonDepth":22},"stats":$stats}"""
     private fun trace() = AnalysisTiming(1, 2, "deep", System::nanoTime)
+
+    @Test fun lightningExplicitlyLimitsBothDepthAndBudgetAndRecordsTheActualProfile() = runBlocking {
+        server.enqueue(MockResponse().setBody(body()))
+        val trace = trace()
+        withContext(trace) { client.analyzeMove(listOf("e2e4"), "c7c5", true, "lightning") }
+        val request = server.takeRequest(2, TimeUnit.SECONDS)!!
+        val payload = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("lightning", payload.getValue("profile").jsonPrimitive.content)
+        assertEquals(2, payload.getValue("multiPv").jsonPrimitive.int)
+        val limits = payload.getValue("limits").jsonObject
+        assertEquals(22, limits.getValue("depth").jsonPrimitive.int)
+        assertEquals(500, limits.getValue("maxTimeMs").jsonPrimitive.int)
+        assertEquals(trace.id, request.getHeader("X-Request-ID"))
+        assertEquals("lightning", trace.snapshot().getString("profile"))
+        assertEquals(22, trace.snapshot().getInt("target_depth"))
+        assertEquals(500, trace.snapshot().getInt("search_budget_ms"))
+    }
 
     @Test fun delayedHttpIsMeasuredSeparatelyFromServerSearchAndRequestIdMatchesTheHeader() = runBlocking {
         server.enqueue(MockResponse().setBody(body("""{"searchTimeMs":20,"queueWaitMs":0,"responseTimeMs":25,"cached":false}"""))

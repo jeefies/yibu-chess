@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import cn.yibu.chess.core.*
 import cn.yibu.chess.data.PlayPreferences
+import cn.yibu.chess.data.GameDatabase
 import cn.yibu.chess.diagnostics.AnalysisTimings
 import cn.yibu.chess.engine.RemoteStockfishClient
 import okhttp3.mockwebserver.MockResponse
@@ -14,6 +15,8 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -26,6 +29,8 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class AnalysisTimingViewModelTest {
+    @Before fun resetDatabase() { GameDatabase.resetForTests() }
+    @After fun closeDatabase() { GameDatabase.resetForTests() }
     private fun waitFor(model: GameViewModel, condition: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         while (!condition() && System.nanoTime() < deadline) {
@@ -68,7 +73,7 @@ class AnalysisTimingViewModelTest {
             val exported = File(app.cacheDir, "exports/yibu-analysis-timings.json").readText()
             assertFalse(exported.contains("secret-access-token"))
             assertFalse(exported.contains("c7c5"))
-            assertEquals("0.8.2", JSONObject(exported).getString("version"))
+            assertEquals(BuildConfig.VERSION_NAME, JSONObject(exported).getString("version"))
         } finally { store.clear(); server.shutdown() }
     }
 

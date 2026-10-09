@@ -6,11 +6,14 @@ import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import cn.yibu.chess.core.*
 import cn.yibu.chess.data.PlayPreferences
+import cn.yibu.chess.data.GameDatabase
 import cn.yibu.chess.engine.RemoteStockfishClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.*
+import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -22,6 +25,8 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class RemoteGameViewModelTest {
+    @Before fun resetDatabase() { GameDatabase.resetForTests() }
+    @After fun closeDatabase() { GameDatabase.resetForTests() }
     private fun waitFor(model: GameViewModel, condition: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         while (!condition() && System.nanoTime() < deadline) {

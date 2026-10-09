@@ -8,7 +8,7 @@ class RemoteAnalysisTest {
     private fun review(canCompare: Boolean = true, playedDepth: Int = 22, commonDepth: Int = 22): MoveReview = runBlocking {
         val service = object : StockfishService {
             override suspend fun evaluate(history: List<String>, profile: String, multiPv: Int): RemoteEvaluation = error("unused")
-            override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean) = RemoteMoveAnalysis(
+            override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String?) = RemoteMoveAnalysis(
                 best = Evaluation(22, cp = 40, pv = listOf("e2e4")),
                 played = Evaluation(playedDepth, cp = 30, pv = listOf(playedMove)),
                 canCompare = canCompare, commonDepth = commonDepth)
@@ -35,6 +35,15 @@ class RemoteAnalysisTest {
         assertTrue(review.canReuseDeep(500, "Stockfish 19"))
         assertFalse(review.canReuseDeep(500, "Stockfish 17.1"))
         assertFalse(review.canReuseDeep(600, "Stockfish 19"))
+    }
+    @Test fun selectingDeepDoesNotReuseLightningButLightningCanReuseDeepOrLegacyDeep() {
+        val review = review()
+        assertEquals("deep", review.analysisProfile)
+        assertTrue(review.canReuseDeep(500, "Stockfish 19", "lightning"))
+        assertFalse(review.copy(analysisProfile = "lightning").canReuseDeep(500, "Stockfish 19", "deep"))
+        assertTrue(review.copy(analysisProfile = "lightning").canReuseDeep(500, "Stockfish 19"))
+        assertTrue(review.copy(analysisProfile = "").canReuseDeep(500, "Stockfish 19", "deep"))
+        assertFalse(review.copy(analysisProfile = "", deeplySearched = false).canReuseDeep(500, "Stockfish 19", "deep"))
     }
     @Test fun strongestNewGameUsesRemoteEngineAndNeverChangesElo() {
         val game = EloRules.newGame(PlayerProfile(500), Difficulty.STRONG, true)

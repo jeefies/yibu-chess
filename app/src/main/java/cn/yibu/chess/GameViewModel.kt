@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,6 +82,7 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
     private var liveAnalysis: Job? = null
     private var generation = 0
     private val persistence = Mutex()
+    private val backgroundAttempts = mutableSetOf<Pair<Int, String>>()
 
     init {
         viewModelScope.launch { repository.games.collect { games -> mutable.update { it.copy(games = games) } } }
@@ -105,6 +107,7 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
     private fun cancelWork(saveSnapshot: Boolean = true) {
         val snapshot = mutable.value.game
         generation++
+        backgroundAttempts.clear()
         work?.cancel()
         liveAnalysis?.cancel()
         stockfishClient.stop()
@@ -126,11 +129,13 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
             return
         }
         val connectionChanged = saved.stockfishToken != mutable.value.settings.stockfishToken
+        val budgetChanged = saved.analysisBudget != mutable.value.settings.analysisBudget
         if (connectionChanged) cancelWork()
         preferences.save(saved)
         mutable.update { it.copy(settings = saved, error = null, status = "设置已保存，当前棋局继续保留") }
-        if (connectionChanged && mutable.value.page == 0) {
-            if (!mutable.value.game.finished && !mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
+        if ((connectionChanged || budgetChanged) && mutable.value.page == 0) {
+            if (!mutable.value.game.finished && !mutable.value.humanTurn && !mutable.value.busy) advance()
+            scheduleLiveAnalysis()
         }
     }
     fun configureAndStart(settings: PlaySettings) {
@@ -173,12 +178,12 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
         if (!state.ready || state.busy || state.page != 0 || state.game.finished || !state.humanTurn) return
         try {
             if (uci !in ChessRules.legal(state.game.moves)) { playFeedback(SoundCue.ILLEGAL); return }
-            // Give a new move priority over optional background analysis.
-            cancelWork(saveSnapshot = false)
-            val game = finishIfNecessary(state.game.copy(moves = state.game.moves + uci))
-            mutable.update { it.copy(game = game, cursor = game.moves.size, brilliantNotices = emptyList(), kingBreak = KingBreak.between(state.game, game)) }
-            sounds.play(SoundEvents.transition(state.game, game))
+            val current = state.game
+            val game = finishIfNecessary(current.copy(moves = current.moves + uci))
+            mutable.update { it.copy(game = game, cursor = game.moves.size, brilliantNotices = emptyList(), kingBreak = KingBreak.between(current, game)) }
+            sounds.play(SoundEvents.transition(current, game))
             advance()
+            scheduleLiveAnalysis()
         } catch (e: Exception) { mutable.update { it.copy(error = e.message) } }
     }
     private fun finishIfNecessary(game: GameRecord): GameRecord = ChessRules.outcome(game.moves)?.let { (result, ending) ->
@@ -216,10 +221,16 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
                     delay(OpponentPacing.remainingMs(thinkingTime, SystemClock.elapsedRealtime() - started))
                     currentCoroutineContext().ensureActive()
                     if (token != generation || mutable.value.game.id != before.id || mutable.value.page != 0 || mutable.value.game.finished) return@launch
-                    val game = withContext(Dispatchers.Default) { finishIfNecessary(before.copy(moves = before.moves + move)) }
-                    mutable.update { it.copy(game = game, cursor = game.moves.size, kingBreak = KingBreak.between(before, game)) }
-                    sounds.play(SoundEvents.transition(before, game))
-                    persist(game)
+                    val moved = withContext(Dispatchers.Default) { finishIfNecessary(before.copy(moves = before.moves + move)) }
+                    currentCoroutineContext().ensureActive()
+                    if (token != generation || mutable.value.game.id != before.id || mutable.value.page != 0 || mutable.value.game.finished) return@launch
+                    mutable.update { state ->
+                        // An analysis can finish while outcome checking runs on Default.
+                        val game = state.game.copy(moves = moved.moves, result = moved.result, ending = moved.ending, finished = moved.finished)
+                        state.copy(game = game, cursor = game.moves.size, kingBreak = KingBreak.between(state.game, game))
+                    }
+                    sounds.play(SoundEvents.transition(before, mutable.value.game))
+                    persist(mutable.value.game)
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (token == generation) mutable.update { it.copy(error = "本次计算失败：${e.message}，可点击继续重试。") } }
@@ -234,45 +245,68 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
     private fun scheduleLiveAnalysis() {
         val state = mutable.value
         if (state.settings.stockfishToken.isBlank()) return
-        if (!state.ready || state.busy || state.transitioning || state.page != 0 ||
-            (!state.humanTurn && !state.game.finished) || liveAnalysis?.isActive == true) return
-        val missing = (1..state.game.moves.size).filter { ply -> state.game.reviews.none { it.ply == ply } }
-        // Verify both sides of the current turn before catching up older interrupted work.
-        val pending = missing.filter { it >= state.game.moves.size - 1 } + missing.filter { it < state.game.moves.size - 1 }
-        if (pending.isEmpty()) return
+        if (!state.ready || state.transitioning || state.page != 0 || liveAnalysis?.isActive == true) return
+        val gameId = state.game.id
         val token = generation
         mutable.update { it.copy(analyzing = true) }
         liveAnalysis = viewModelScope.launch {
             try {
-                for (ply in pending) {
-                    currentCoroutineContext().ensureActive()
-                    if (token != generation) return@launch
-                    analyzePly(ply, false, token)
+                while (isActive) {
+                    val current = mutable.value
+                    if (token != generation || current.game.id != gameId || current.page != 0 || current.settings.stockfishToken.isBlank()) break
+                    val profile = current.settings.analysisBudget.profileName
+                    val missing = (1..current.game.moves.size).filter { ply ->
+                        (ply to profile) !in backgroundAttempts && current.game.reviews.none {
+                            it.ply == ply && it.canReuseDeep(scoringElo(current.game, ply), stockfishClient.engineName, profile)
+                        }
+                    }
+                    if (missing.isEmpty()) break
+                    val nextPly = missing.find { it >= current.game.moves.size - 1 } ?: missing.first()
+                    // An inconclusive/short result is retained for manual retry, never a tight retry loop.
+                    backgroundAttempts.add(nextPly to profile)
+                    analyzePly(nextPly, deep = true, token, profileOverride = profile)
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (token == generation) mutable.update { it.copy(error = "后台分析暂未完成：${e.message}，可在复盘重试；仍可继续走棋。") }
             } finally {
-                if (token == generation) mutable.update { it.copy(analyzing = false,
-                    status = if (it.game.finished) "${it.game.ending} · ${resultChinese(it.game)}" else "轮到你走棋") }
+                if (token == generation) {
+                    mutable.update {
+                        val status = when {
+                            it.page == 1 -> it.status
+                            it.busy && !it.humanTurn -> "对手正在思考…"
+                            it.game.finished -> "${it.game.ending} · ${resultChinese(it.game)}"
+                            it.humanTurn -> "轮到你走棋"
+                            else -> "轮到对手走棋"
+                        }
+                        it.copy(analyzing = false, status = status)
+                    }
+                }
             }
         }
     }
-    private suspend fun analyzePly(ply: Int, deep: Boolean, token: Int) {
+    private suspend fun analyzePly(ply: Int, deep: Boolean, token: Int, profileOverride: String? = null) {
         if (token != generation) return
         check(mutable.value.settings.stockfishToken.isNotBlank()) { "请在对局设置中填写朋友提供的 Access Token" }
         val game = mutable.value.game
-        mutable.update { it.copy(status = if (it.page == 1) {
-            if (deep) "深度复评 $ply / ${game.moves.size}" else "正在分析第 ${(ply + 1) / 2} 回合…"
-        } else "后台分析第 $ply 步${if (game.finished) "" else " · 可继续走棋"}") }
+        if (ply <= 0 || ply > game.moves.size) return
+        mutable.update {
+            val status = when {
+                it.page == 1 -> if (deep) "深度复评 $ply / ${game.moves.size}" else "正在分析第 ${(ply + 1) / 2} 回合…"
+                it.busy && !it.humanTurn -> "对手正在思考…"
+                it.game.finished -> "后台深度分析第 $ply 步"
+                else -> "后台深度分析第 $ply 步 · 可继续走棋"
+            }
+            it.copy(status = status)
+        }
         val scoringElo = scoringElo(game, ply)
-        val timing = AnalysisTimings.begin(getApplication(), game.id, ply, deep)
+        val timing = AnalysisTimings.begin(getApplication(), game.id, ply, deep, profileOverride)
         timing.put("scoring_elo", scoringElo)
         val review = try {
             withContext(timing) {
                 val analysisStarted = timing.now()
                 val result = try {
-                    withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo) }
+                    withContext(Dispatchers.Default) { analyzer.analyze(game.moves.take(ply - 1), game.moves[ply - 1], deep, scoringElo, profileOverride) }
                 } finally { timing.duration("analysis_ms", analysisStarted) }
                 currentCoroutineContext().ensureActive()
                 if (token != generation || game.id != mutable.value.game.id) return@withContext null
@@ -315,7 +349,8 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
         cancelWork()
         mutable.update { it.copy(page = page, cursor = it.game.moves.size, variation = emptyList(), lessonOpen = false, kingBreak = null, highlightsOpen = false, status = "引擎已就绪") }
         if (page == 0) {
-            if (!mutable.value.game.finished && !mutable.value.humanTurn) advance() else scheduleLiveAnalysis()
+            if (!mutable.value.game.finished && !mutable.value.humanTurn) advance()
+            scheduleLiveAnalysis()
         }
     }
     fun load(game: GameRecord) {
@@ -548,7 +583,8 @@ class GameViewModel @JvmOverloads constructor(application: Application, remoteCl
         sounds.resume()
         val state = mutable.value
         if (state.ready && state.page == 0 && !state.busy) {
-            if (!state.game.finished && !state.humanTurn) advance() else scheduleLiveAnalysis()
+            if (!state.game.finished && !state.humanTurn) advance()
+            scheduleLiveAnalysis()
         }
     }
     fun resultChinese(game: GameRecord): String = when (game.result) {

@@ -19,9 +19,19 @@ class PlayPreferencesTest {
         val chosen = PlaySettings(Difficulty.MATCHED, ColorPreference.BLACK)
         preferences.save(chosen)
         assertEquals(chosen, PlayPreferences(context).read())
-        preferences.save(PlaySettings(Difficulty.STRONG, ColorPreference.WHITE, "secret-token-xyz"))
+        preferences.save(PlaySettings(Difficulty.STRONG, ColorPreference.WHITE, "secret-token-xyz", AnalysisBudget.DEEP))
         val readBack = PlayPreferences(context).read()
         assertEquals(Difficulty.STRONG, readBack.mode)
         assertEquals("secret-token-xyz", readBack.stockfishToken)
+        assertEquals(AnalysisBudget.DEEP, readBack.analysisBudget)
+    }
+    @Test fun corruptBudgetFallsBackToLightningWithoutLosingTheToken() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val preferences = PlayPreferences(context)
+        preferences.save(PlaySettings(stockfishToken = "test-token"))
+        context.getSharedPreferences("play-settings", Context.MODE_PRIVATE).edit()
+            .putString("analysis_budget", "UNKNOWN").apply()
+        assertEquals(AnalysisBudget.LIGHTNING, preferences.read().analysisBudget)
+        assertEquals("test-token", preferences.read().stockfishToken)
     }
 }

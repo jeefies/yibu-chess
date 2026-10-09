@@ -62,9 +62,14 @@ abstract class GameDatabase : RoomDatabase() {
             }
         }
         @Volatile private var instance: GameDatabase? = null
+        // Room opens lazily. isOpen=false does not mean a fresh database is unusable.
         fun get(context: Context): GameDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, GameDatabase::class.java, "yibu-chess.db")
                 .addMigrations(MIGRATION_1_2).build().also { instance = it }
+        }
+        fun resetForTests() = synchronized(this) {
+            instance?.close()
+            instance = null
         }
     }
 }

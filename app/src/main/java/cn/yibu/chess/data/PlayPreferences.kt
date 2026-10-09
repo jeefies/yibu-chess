@@ -1,6 +1,7 @@
 package cn.yibu.chess.data
 
 import android.content.Context
+import cn.yibu.chess.core.AnalysisBudget
 import cn.yibu.chess.core.ColorPreference
 import cn.yibu.chess.core.Difficulty
 import cn.yibu.chess.core.PlaySettings
@@ -12,7 +13,8 @@ class PlayPreferences(context: Context) {
             ?.takeIf { it in Difficulty.choices } ?: Difficulty.MATCHED
         val color = runCatching { ColorPreference.valueOf(preferences.getString("color", "RANDOM")!!) }.getOrDefault(ColorPreference.RANDOM)
         val token = preferences.getString("stockfish_token", "") ?: ""
-        return PlaySettings(mode, color, token)
+        val budget = runCatching { AnalysisBudget.valueOf(preferences.getString("analysis_budget", "LIGHTNING")!!) }.getOrDefault(AnalysisBudget.LIGHTNING)
+        return PlaySettings(mode, color, token, budget)
     }
     fun save(settings: PlaySettings) {
         require(settings.mode in Difficulty.choices)
@@ -20,6 +22,7 @@ class PlayPreferences(context: Context) {
             .putString("mode", settings.mode.name)
             .putString("color", settings.color.name)
             .putString("stockfish_token", settings.stockfishToken.trim())
+            .putString("analysis_budget", settings.analysisBudget.name)
             .apply()
     }
 }

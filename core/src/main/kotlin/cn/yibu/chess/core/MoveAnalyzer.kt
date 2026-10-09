@@ -24,10 +24,10 @@ object RatingRules {
 class MoveAnalyzer(private val service: StockfishService) {
     constructor(engine: ChessEngine) : this(EngineToServiceAdapter(engine))
 
-    suspend fun analyze(history: List<String>, uci: String, deep: Boolean, playerElo: Int = 500): MoveReview {
+    suspend fun analyze(history: List<String>, uci: String, deep: Boolean, playerElo: Int = 500, profileOverride: String? = null): MoveReview {
         val legal = ChessRules.legal(history)
         require(uci in legal)
-        val analysis = service.analyzeMove(history, uci, deep)
+        val analysis = service.analyzeMove(history, uci, deep, profileOverride)
         var best = analysis.best
         var played = analysis.played
         // Terminal game outcomes override statistical WDL, including mandatory draws.
@@ -72,6 +72,7 @@ class MoveAnalyzer(private val service: StockfishService) {
             grade, explanation, provisional = !deep || !stable || nearThreshold || best.depth < 12,
             engineVersion = analysis.engineName,
             algorithmVersion = 3, scoringElo = playerElo, bestExpectedPoints = bestPoints, playedExpectedPoints = playedPoints,
-            brilliantReason = brilliant?.reason, brilliantPlan = brilliant?.plan, deeplySearched = deep)
+            brilliantReason = brilliant?.reason, brilliantPlan = brilliant?.plan, deeplySearched = deep,
+            analysisProfile = profileOverride ?: if (deep) "deep" else "fast")
     }
 }

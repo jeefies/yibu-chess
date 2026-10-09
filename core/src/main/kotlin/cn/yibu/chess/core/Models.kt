@@ -55,13 +55,17 @@ data class MoveReview(
     val brilliantReason: String? = null,
     val brilliantPlan: String? = null,
     val deeplySearched: Boolean = false,
+    val analysisProfile: String = "",
 ) {
     val pointsLost: Double get() = ((bestExpectedPoints ?: best.expected) - (playedExpectedPoints ?: played.expected)).coerceAtLeast(0.0)
     val bestMove: String get() = best.pv.firstOrNull() ?: uci
     val moverWhite: Boolean get() = ply % 2 == 1
-    fun canReuseDeep(elo: Int, expectedEngine: String = "Stockfish 17.1"): Boolean = algorithmVersion == 3 && scoringElo == elo &&
+    fun canReuseDeep(elo: Int, expectedEngine: String = "Stockfish 17.1", requiredProfile: String? = null): Boolean = algorithmVersion == 3 && scoringElo == elo &&
         engineVersion == expectedEngine && (deeplySearched || !provisional) &&
-        grade != Grade.UNSTABLE && best.depth >= 12 && best.depth == played.depth
+        grade != Grade.UNSTABLE && best.depth >= 12 && best.depth == played.depth &&
+        (requiredProfile == null || analysisProfile == requiredProfile ||
+            requiredProfile == "lightning" && analysisProfile == "deep" ||
+            analysisProfile.isEmpty() && deeplySearched)
 }
 
 @Serializable
@@ -164,7 +168,7 @@ data class RemoteMoveAnalysis(
 
 interface StockfishService {
     suspend fun evaluate(history: List<String>, profile: String = "standard", multiPv: Int = 1): RemoteEvaluation
-    suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis
+    suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String? = null): RemoteMoveAnalysis
     fun stop()
 }
 
@@ -175,7 +179,7 @@ class EngineToServiceAdapter(private val engine: ChessEngine) : StockfishService
         return RemoteEvaluation(res.best.depth, res.bestMove, res.best, res.lines, "Stockfish 17.1")
     }
 
-    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis {
+    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String?): RemoteMoveAnalysis {
         val legalSize = ChessRules.legal(history).size
         val request = SearchRequest(
             timeMs = if (deep) 6000 else 1500,

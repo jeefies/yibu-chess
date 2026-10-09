@@ -20,8 +20,8 @@ internal object AnalysisTimings {
     private val reloads = ArrayDeque<JSONObject>()
     private val lock = Any()
 
-    fun begin(context: Context, gameId: Long, ply: Int, deep: Boolean): AnalysisTiming =
-        AnalysisTiming(gameId, ply, if (deep) "deep" else "fast").also { trace ->
+    fun begin(context: Context, gameId: Long, ply: Int, deep: Boolean, profileOverride: String? = null): AnalysisTiming =
+        AnalysisTiming(gameId, ply, profileOverride ?: if (deep) "deep" else "fast").also { trace ->
             val transports = runCatching {
                 val manager = context.getSystemService(ConnectivityManager::class.java)
                 val capabilities = manager.getNetworkCapabilities(manager.activeNetwork)

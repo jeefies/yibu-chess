@@ -23,7 +23,11 @@ internal data class PositionDto(val initialFen: String = ChessRules.START_FEN, v
 internal data class EvaluateReqDto(val position: PositionDto, val profile: String, val multiPv: Int)
 
 @Serializable
-internal data class AnalyzeMoveReqDto(val position: PositionDto, val playedMove: String, val profile: String, val multiPv: Int = 2)
+internal data class AnalysisLimitsDto(val depth: Int, val maxTimeMs: Int)
+
+@Serializable
+internal data class AnalyzeMoveReqDto(val position: PositionDto, val playedMove: String, val profile: String,
+    val multiPv: Int = 2, val limits: AnalysisLimitsDto? = null)
 
 @Serializable
 internal data class ScoreDetailDto(val type: String, val value: Int, val bound: String = "exact")
@@ -124,11 +128,17 @@ class RemoteStockfishClient(
         return RemoteEvaluation(best.depth, best.pv.first(), best, candidates, engineName)
     }
 
-    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean): RemoteMoveAnalysis {
+    override suspend fun analyzeMove(history: List<String>, playedMove: String, deep: Boolean, profileOverride: String?): RemoteMoveAnalysis {
         val timing = currentCoroutineContext()[AnalysisTiming]
         val preparation = timing?.now()
         require(playedMove in ChessRules.legal(history)) { "待分析走法非法" }
-        val dto = AnalyzeMoveReqDto(PositionDto(moves = history), playedMove, if (deep) "deep" else "fast")
+        val profile = profileOverride ?: if (deep) "deep" else "fast"
+        require(profile in setOf("fast", "deep", "lightning")) { "分析模式无效" }
+        // Both values are explicit: the server's limits object otherwise defaults to 128 / 4000ms.
+        val limits = if (profile == "lightning") AnalysisLimitsDto(depth = 22, maxTimeMs = 500) else null
+        val dto = AnalyzeMoveReqDto(PositionDto(moves = history), playedMove, profile, limits = limits)
+        timing?.put("profile", profile)
+        limits?.let { timing?.put("target_depth", it.depth); timing?.put("search_budget_ms", it.maxTimeMs) }
         val builder = request("analyze-move").post(json.encodeToString(dto).toRequestBody(jsonMediaType))
         if (timing != null) builder.header("X-Request-ID", timing.id).tag(AnalysisTiming::class.java, timing)
         val request = builder.build()
